@@ -1,0 +1,153 @@
+# Configuration for Autonomous ML Pipeline
+# Copy this file to config.yaml and fill in your values
+
+# GitHub Configuration
+github:
+  username: ""  # Your GitHub username
+  token: ""     # GitHub personal access token (Settings > Developer settings > Personal access tokens)
+  organization: ""  # Optional: organization name
+
+# LLM Configuration
+llm:
+  provider: "huggingface"  # Options: huggingface, local
+  model_name: "mistralai/Mistral-7B-Instruct-v0.2"  # Free model on HuggingFace
+  api_url: "https://api-inference.huggingface.co/models"
+  token: ""  # Optional: HuggingFace token for better rate limits
+  max_retries: 3
+  timeout: 60
+  gemini_api_key: ""  # Optional: Gemini API key (can also set GEMINI_API_KEY env var)
+
+# Gemini Configuration (for analyzing Reddit posts)
+gemini:
+  enabled: false  # Set to true to use Gemini for Reddit post analysis
+  api_key: ""  # Gemini API key (or set GEMINI_API_KEY env var, or use llm.gemini_api_key)
+  model_name: "gemini-pro"  # Model to use: gemini-pro, gemini-pro-vision, etc.
+  min_confidence: 0.6  # Minimum confidence threshold for accepting posts as ML problems
+
+# Direct Problem Input (Alternative to mining)
+# Use this to provide a problem statement directly instead of mining
+direct_problem:
+  enabled: false  # Set to true to use direct problem input
+  statement: ""  # Your problem statement here (or use --problem CLI arg)
+
+# Problem Mining (Kaggle and GitHub prioritized)
+problem_miner:
+  min_problem_length: 50
+  max_problems_per_run: 10
+
+# Kaggle Problem Mining (PRIMARY source)
+kaggle_problem_mining:
+  enabled: true  # Set to false to disable Kaggle mining
+  max_competitions: 10  # Maximum competitions to mine
+  max_datasets: 20  # Maximum datasets to mine
+
+# GitHub Problem Mining (SECONDARY source)
+github_problem_mining:
+  enabled: true  # Set to false to disable GitHub mining
+  max_issues: 20  # Maximum issues to mine
+  max_repos: 10  # Maximum repositories to mine
+
+# Search Configuration (for finding approved problems)
+max_search_iterations: 10  # Maximum number of problem mining batches to try
+max_total_problems_evaluated: 100  # Maximum total problems to evaluate before giving up
+
+# ML Decision Agent (Primary Decision Maker)
+ml_decision_agent:
+  strict_mode: true  # Prefer refusal over incorrect automation
+  # The agent implements 4 gates:
+  # 1. Problem Intent Classification
+  # 2. ML Feasibility Check
+  # 3. Causal Validity Check
+  # 4. Model Justification
+
+# ML Feasibility (Secondary Validation)
+feasibility:
+  min_confidence: 0.7
+  required_task_types:
+    - "classification"
+    - "regression"
+    - "clustering"
+  reject_keywords:
+    - "need help with"
+    - "how do i"
+    - "tutorial"
+
+# Dataset Discovery
+dataset_discovery:
+  sources:
+    - kaggle
+    - huggingface
+    - uci
+  kaggle:
+    enabled: true
+    max_results: 20
+  huggingface:
+    enabled: true
+    max_results: 20
+  uci:
+    enabled: true
+    max_results: 20
+  min_dataset_size: 100
+  max_dataset_size: 1000000
+
+# Dataset Matching
+dataset_matching:
+  similarity_threshold: 0.4  # Lowered from 0.6 to allow more matches
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  top_k_matches: 3
+
+# Problem Registry (Prevents duplicate problems)
+problem_registry:
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"  # Same as dataset matching
+  problem_similarity_threshold: 0.90  # Very high threshold for exact duplicate problems (0.0-1.0)
+  allow_duplicate_problems: false  # Set to true to allow same problem multiple times
+
+# Model Registry (Vector-based duplicate prevention)
+model_registry:
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"  # Same as dataset matching
+  model_similarity_threshold: 0.85  # High threshold for duplicate detection (0.0-1.0)
+  max_duplicate_trains: 2  # Maximum times a similar model can be trained
+
+# AutoML Training
+automl:
+  framework: "pycaret"  # Options: pycaret, autogluon
+  max_training_time: 3600  # seconds
+  test_size: 0.2
+  random_state: 42
+  max_dataset_rows: 50000  # Limit dataset size to avoid memory issues (samples if larger)
+  models_to_try:
+    - "rf"  # Random Forest
+    - "gbc"  # Gradient Boosting
+    - "lr"   # Logistic Regression
+    - "knn"  # K-Nearest Neighbors
+  min_model_score: 0.6
+
+# Code Generation
+code_generation:
+  include_examples: true
+  include_visualizations: false
+  code_style: "pep8"
+
+# GitHub Publishing
+github_publishing:
+  create_repo: true
+  add_topics: true
+  default_topics:
+    - "machine-learning"
+    - "automated-ml"
+    - "pycaret"
+  make_private: false
+
+# Logging
+logging:
+  level: "INFO"
+  file: "outputs/logs/pipeline.log"
+  console: true
+
+# Safety Filters
+safety:
+  reject_problems_without_data: true
+  reject_unsafe_problems: true
+  max_training_time: 3600
+  max_model_size_mb: 500
+

@@ -1,0 +1,46 @@
+Analyze the following problem and determine if it can be solved using machine learning.
+
+CRITICAL: First determine if this is:
+- A DISCUSSION/THEORETICAL POST about ML concepts, failures, or frameworks (NOT suitable for training)
+- An ACTUAL ML PROBLEM that requires building/training a model (suitable for training)
+
+Discussion posts to REJECT:
+- Posts about "why ML fails", "correlation vs causation", "causal inference"
+- Theoretical discussions about ML frameworks, paradigms, or concepts (e.g., Judea Pearl's Ladder of Causation)
+- Research papers, analysis, or explanations
+- Questions about ML concepts without asking for implementation
+- Posts marked [D] or [Discussion]
+- Posts discussing production ML failures, distribution shift, robustness
+- Posts asking "curious if" or "wondering" about concepts
+
+Actual ML problems to ACCEPT:
+- Requests to build, train, or implement ML models
+- Problems that need prediction, classification, or clustering
+- Questions asking for help with specific ML tasks
+- Problems that can be solved with a dataset and model training
+- Clear action verbs: "build", "create", "develop", "implement", "train", "predict"
+
+Problem:
+{problem_text}
+
+Evaluate:
+1. Is this a discussion/theoretical post? (yes/no) - If yes, set feasible=false, task_type=none
+2. Is this problem solvable using machine learning? (yes/no)
+3. What type of ML task is this? (classification/regression/clustering/other/none)
+4. What is the confidence level? (0.0 to 1.0)
+5. Is a public dataset likely available? (yes/no/maybe)
+6. What are the key features/variables needed?
+7. What are potential challenges?
+
+Respond ONLY with valid JSON in this exact format:
+{{
+    "feasible": true/false,
+    "task_type": "classification|regression|clustering|other|none",
+    "confidence": 0.0-1.0,
+    "dataset_available": true/false/null,
+    "key_features": ["feature1", "feature2"],
+    "challenges": ["challenge1", "challenge2"],
+    "reasoning": "brief explanation",
+    "is_discussion": true/false
+}}
+

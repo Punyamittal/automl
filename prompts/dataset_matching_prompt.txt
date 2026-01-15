@@ -1,0 +1,19 @@
+Evaluate how well the following dataset matches the problem description.
+
+Problem:
+{problem_text}
+
+Dataset:
+{dataset_text}
+
+Rate the match quality from 0.0 to 1.0 and provide reasoning.
+
+Respond ONLY with valid JSON:
+{{
+    "similarity_score": 0.0-1.0,
+    "relevance": "high|medium|low",
+    "reasoning": "explanation of match quality",
+    "suitable_features": ["feature1", "feature2"],
+    "potential_issues": ["issue1", "issue2"]
+}}
+

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autonomous ML Pipeline</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>🤖 Autonomous ML Pipeline</h1>
+            <p>Automated Machine Learning from Problem to Solution</p>
+        </header>
+
+        <!-- Start Screen -->
+        <div id="start-screen" class="screen active">
+            <div class="start-card">
+                <h2>Ready to Start?</h2>
+                <p>Click the button below to begin the autonomous ML pipeline. The system will:</p>
+                <ul>
+                    <li>Mine problems from Reddit and StackOverflow</li>
+                    <li>Evaluate ML feasibility</li>
+                    <li>Discover and match datasets</li>
+                    <li>Train machine learning models</li>
+                    <li>Generate complete code solution</li>
+                    <li>Publish to GitHub</li>
+                </ul>
+                <button id="start-btn" class="btn-primary" onclick="startPipeline()">
+                    🚀 Start Pipeline
+                </button>
+            </div>
+        </div>
+
+        <!-- Timeline Screen -->
+        <div id="timeline-screen" class="screen">
+            <h2>Pipeline Progress</h2>
+            <div class="timeline-container">
+                <div id="timeline" class="timeline">
+                    <!-- Timeline items will be dynamically added -->
+                </div>
+            </div>
+            <div class="logs-container">
+                <h3>Live Logs</h3>
+                <div id="logs" class="logs"></div>
+            </div>
+        </div>
+
+        <!-- Results Dashboard -->
+        <div id="dashboard-screen" class="screen">
+            <h2>Results Dashboard</h2>
+            
+            <!-- Problem Section -->
+            <div class="dashboard-section">
+                <h3>📋 Problem Solved</h3>
+                <div id="problem-info" class="info-card">
+                    <p class="loading">Loading problem information...</p>
+                </div>
+            </div>
+
+            <!-- Model Performance -->
+            <div class="dashboard-section">
+                <h3>📊 Model Performance</h3>
+                <div id="model-performance" class="info-card">
+                    <p class="loading">Loading performance metrics...</p>
+                </div>
+            </div>
+
+            <!-- Try the Model -->
+            <div class="dashboard-section">
+                <h3>🧪 Try the Model</h3>
+                <div id="model-tester" class="info-card">
+                    <div id="feature-inputs">
+                        <p class="loading">Loading model interface...</p>
+                    </div>
+                    <button id="predict-btn" class="btn-primary" onclick="makePrediction()" style="display:none;">
+                        Predict
+                    </button>
+                    <div id="prediction-result" style="display:none;"></div>
+                </div>
+            </div>
+
+            <!-- Generated Files -->
+            <div class="dashboard-section">
+                <h3>📁 Generated Files</h3>
+                <div id="generated-files" class="info-card">
+                    <p class="loading">Loading file information...</p>
+                </div>
+            </div>
+
+            <!-- GitHub Repository -->
+            <div class="dashboard-section">
+                <h3>🔗 GitHub Repository</h3>
+                <div id="github-info" class="info-card">
+                    <p class="loading">Loading repository information...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
