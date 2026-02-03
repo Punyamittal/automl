@@ -19,7 +19,7 @@ llm:
 
 # Gemini Configuration (for analyzing Reddit posts)
 gemini:
-  enabled: false  # Set to true to use Gemini for Reddit post analysis
+  enabled: true  # Set to true to use Gemini for Reddit post analysis
   api_key: ""  # Gemini API key (or set GEMINI_API_KEY env var, or use llm.gemini_api_key)
   model_name: "gemini-pro"  # Model to use: gemini-pro, gemini-pro-vision, etc.
   min_confidence: 0.6  # Minimum confidence threshold for accepting posts as ML problems

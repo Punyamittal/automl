@@ -54,25 +54,33 @@ class DatasetDiscovery:
         """Discover datasets relevant to the problem."""
         all_datasets = []
         
+        logger.info(f"Starting dataset discovery for {len(keywords)} keywords: {keywords}")
+        logger.info(f"Kaggle enabled: {self.kaggle_config.get('enabled', False)}, API available: {self.kaggle_api is not None}")
+        
         if self.kaggle_config.get('enabled', False) and self.kaggle_api:
             logger.info("Searching Kaggle datasets...")
             kaggle_datasets = self._search_kaggle(keywords, task_type)
+            logger.info(f"Found {len(kaggle_datasets)} Kaggle datasets")
             all_datasets.extend(kaggle_datasets)
+        else:
+            logger.warning("Kaggle search skipped - not enabled or API not available")
         
         if self.huggingface_config.get('enabled', False):
             logger.info("Searching HuggingFace datasets...")
             hf_datasets = self._search_huggingface(keywords, task_type)
+            logger.info(f"Found {len(hf_datasets)} HuggingFace datasets")
             all_datasets.extend(hf_datasets)
         
         if self.uci_config.get('enabled', False):
             logger.info("Searching UCI datasets...")
             uci_datasets = self._search_uci(keywords, task_type)
+            logger.info(f"Found {len(uci_datasets)} UCI datasets")
             all_datasets.extend(uci_datasets)
         
         # Filter and rank datasets
         filtered_datasets = self._filter_datasets(all_datasets)
         
-        logger.info(f"Discovered {len(filtered_datasets)} relevant datasets")
+        logger.info(f"Discovered {len(filtered_datasets)} relevant datasets (from {len(all_datasets)} total)")
         return filtered_datasets
     
     def _search_kaggle(self, keywords: List[str], task_type: str) -> List[Dict]:
@@ -239,21 +247,37 @@ class DatasetDiscovery:
         """Filter datasets by quality criteria."""
         filtered = []
         
-        for dataset in datasets:
-            # Must have description
-            if not dataset.get('description'):
-                continue
+        logger.info(f"Filtering {len(datasets)} datasets...")
+        
+        for i, dataset in enumerate(datasets):
+            # Log filtering reasons
+            reasons = []
             
-            # Must have reasonable size
+            # Description is optional - use title if no description
+            if not dataset.get('description') and not dataset.get('title'):
+                reasons.append("no description and no title")
+            
+            # Must have reasonable size (relaxed - size=0 is ok)
             size = dataset.get('size', 0)
             if size > 0 and (size < self.min_size or size > self.max_size):
-                continue
+                reasons.append(f"size {size} out of range")
             
             # Must have some metadata
             if not dataset.get('title') and not dataset.get('id'):
+                reasons.append("no title or id")
+            
+            if reasons:
+                logger.debug(f"Filtering dataset {i+1}: {', '.join(reasons)} - {dataset.get('title', dataset.get('id', 'Unknown'))}")
                 continue
             
+            # Add default description if missing
+            if not dataset.get('description'):
+                dataset['description'] = f"Kaggle dataset: {dataset.get('title', dataset.get('id', 'Unknown'))}"
+            
             filtered.append(dataset)
+            logger.info(f"✅ Passed filter: {dataset.get('title', dataset.get('id', 'Unknown'))}")
+        
+        logger.info(f"Filtering complete: {len(filtered)}/{len(datasets)} datasets passed")
         
         # Sort by usability/downloads
         filtered.sort(

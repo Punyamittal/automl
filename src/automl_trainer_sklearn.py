@@ -356,8 +356,11 @@ class AutoMLTrainer:
     def _train_classification(self, df: pd.DataFrame, target: str) -> Dict:
         """Train classification models to achieve >90% accuracy."""
         try:
+            logger.info(f"Starting classification training with {len(df)} samples and {len(df.columns)-1} features")
+            
             # Prepare data
             X_train, X_test, y_train, y_test = self._prepare_data(df, target, 'classification')
+            logger.info(f"Data prepared: {len(X_train)} training samples, {len(X_test)} test samples")
             
             # Try different models
             best_model = None
@@ -370,8 +373,10 @@ class AutoMLTrainer:
             models_to_try = list(self.models_to_try)
             if XGBOOST_AVAILABLE and 'xgb' not in models_to_try:
                 models_to_try.append('xgb')
+                logger.info("XGBoost available - will use for better accuracy")
             if LIGHTGBM_AVAILABLE and 'lgbm' not in models_to_try:
                 models_to_try.append('lgbm')
+                logger.info("LightGBM available - will use for better accuracy")
             if 'svm' not in models_to_try:
                 models_to_try.append('svm')
             
@@ -384,7 +389,9 @@ class AutoMLTrainer:
                 # Remove slower models for very large datasets
                 models_to_try = [m for m in models_to_try if m in ['lr', 'knn', 'xgb', 'lgbm']]
             
-            for model_code in models_to_try:
+            logger.info(f"Will train {len(models_to_try)} models: {', '.join(models_to_try)}")
+            
+            for i, model_code in enumerate(models_to_try, 1):
                 if model_code not in self.model_map:
                     continue
                 
@@ -393,7 +400,7 @@ class AutoMLTrainer:
                 model_name = model_code.upper()
                 
                 try:
-                    logger.info(f"Training {model_name}...")
+                    logger.info(f"[{i}/{len(models_to_try)}] Training {model_name}...")
                     
                     # Create model with optimized parameters based on dataset size
                     
@@ -443,12 +450,17 @@ class AutoMLTrainer:
                         if n_samples > 10000:
                             logger.info(f"Skipping {model_name} for large dataset ({n_samples} samples)")
                             continue
-                        model = model_class(random_state=self.random_state, max_iter=1000)
+                        model = model_class(max_iter=1000)
+                    elif model_code == 'knn':
+                        # KNN doesn't accept random_state parameter
+                        n_neighbors = min(10, max(3, int(np.sqrt(len(X_train)))))
+                        model = model_class(n_neighbors=n_neighbors)
                     else:
                         # Default parameters for other models
                         model = model_class(random_state=self.random_state)
                     
                     model.fit(X_train, y_train)
+                    logger.info(f"  ✓ {model_name} training completed")
                     
                     # Evaluate
                     y_pred = model.predict(X_test)
@@ -459,6 +471,7 @@ class AutoMLTrainer:
                     
                     # Cross-validation (use fewer folds for large datasets)
                     cv_folds = 3 if n_samples > 20000 else 5
+                    logger.info(f"  ⚡ Running {cv_folds}-fold cross-validation...")
                     cv_scores = cross_val_score(model, X_train, y_train, cv=cv_folds, scoring='accuracy', n_jobs=-1)
                     cv_mean = cv_scores.mean()
                     
@@ -478,7 +491,11 @@ class AutoMLTrainer:
                         best_model = model
                         best_model_name = model_name
                     
-                    logger.info(f"{model_name} - Accuracy: {accuracy:.4f}, CV: {cv_mean:.4f}")
+                    logger.info(f"  📊 {model_name} - Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}, CV: {cv_mean:.4f} (±{cv_scores.std():.4f})")
+                    
+                    # Update best model if this one is better
+                    if accuracy > best_score:
+                        logger.info(f"  🏆 New best model: {model_name} (Accuracy: {accuracy:.4f})")
                     
                 except Exception as e:
                     logger.warning(f"Error training {model_name}: {e}")
@@ -546,20 +563,36 @@ class AutoMLTrainer:
                 except Exception as e:
                     logger.warning(f"Stacking failed: {e}")
             
+            # Final training summary
+            logger.info("=" * 60)
+            logger.info("🎯 CLASSIFICATION TRAINING SUMMARY")
+            logger.info("=" * 60)
+            logger.info(f"📊 Dataset: {len(df)} samples, {len(df.columns)-1} features")
+            logger.info(f"🏆 Best Model: {best_model_name}")
+            logger.info(f"📈 Best Accuracy: {best_score:.4f}")
+            logger.info(f"🔢 Models Trained: {len(trained_models)}")
+            
+            # Show top 3 models
+            top_models = sorted(trained_models, key=lambda x: x[2], reverse=True)[:3]
+            logger.info("🥇 Top 3 Models:")
+            for i, (model, name, score) in enumerate(top_models, 1):
+                emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉"
+                logger.info(f"   {emoji} {name}: {score:.4f} accuracy")
+            
+            if best_score >= 0.90:
+                logger.info(f"✅ SUCCESS: Achieved target accuracy of {best_score:.4f} (>= 0.90)!")
+            else:
+                logger.warning(f"⚠️  Accuracy {best_score:.4f} below 90% target. Consider: more data, better features, or different problem formulation.")
+            logger.info("=" * 60)
+            
             # Check if model meets minimum score
             if best_score < self.min_model_score:
                 logger.warning(f"Model accuracy {best_score:.3f} below threshold {self.min_model_score}")
-            
-            if best_score >= 0.90:
-                logger.info(f"✓ Achieved target accuracy of {best_score:.4f} (>= 0.90) with {best_model_name}!")
-            else:
-                logger.warning(f"Accuracy {best_score:.4f} is below 90% target. Consider: more data, better features, or different problem formulation.")
             
             # Save model
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             model_path = self.models_dir / f"classification_model_{timestamp}.pkl"
             
-            # Save model and scaler
             with open(model_path, 'wb') as f:
                 pickle.dump({
                     'model': best_model,
@@ -568,6 +601,8 @@ class AutoMLTrainer:
                     'feature_selector': self.feature_selector,
                     'model_name': best_model_name
                 }, f)
+            
+            logger.info(f"💾 Model saved to: {model_path}")
             
             # Save metrics
             metrics_path = self.models_dir / f"metrics_{timestamp}.json"
@@ -585,7 +620,8 @@ class AutoMLTrainer:
             with open(metrics_path, 'w') as f:
                 json.dump(metrics_dict, f, indent=2)
             
-            logger.info(f"Classification model trained. Accuracy: {best_score:.4f} ({best_model_name})")
+            logger.info(f"📋 Metrics saved to: {metrics_path}")
+            logger.info(f"🎉 Classification model trained successfully! Accuracy: {best_score:.4f} ({best_model_name})")
             
             return {
                 'success': True,
