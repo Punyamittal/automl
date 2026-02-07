@@ -1,0 +1,53 @@
+---
+description: Autonomous ML Pipeline - project context and conventions
+alwaysApply: true
+---
+
+# Autonomous ML Pipeline - Project Context
+
+## Overview
+
+End-to-end automated ML system: discovers problems (Kaggle/GitHub), evaluates feasibility, finds datasets, trains models (PyCaret), and publishes to GitHub.
+
+## Pipeline Flow
+
+1. **Problem Miner** → Kaggle, GitHub (not Reddit)
+2. **ML Decision Agent** → 4 gates: intent, feasibility, causal validity, justification
+3. **Dataset Discovery** → Kaggle, HuggingFace, UCI
+4. **Dataset Matcher** → sentence-transformers embeddings + FAISS
+5. **AutoML Trainer** → PyCaret, scikit-learn, XGBoost, LightGBM
+6. **Code Generator** → train.py, predict.py, README
+7. **GitHub Publisher** → creates repo, pushes code
+
+## Key Files
+
+- `main.py` — Entry point; `--problem` or `--problem-file` for direct input
+- `src/orchestrator.py` — Pipeline coordinator
+- `config/config.yaml` — All settings (copy from config.yaml.example)
+- `prompts/` — LLM prompts (feasibility, dataset_matching, readme_generation)
+
+## Prompt Conventions
+
+Prompts in `prompts/` use placeholders like `{problem_text}`, `{dataset_text}`. Load via:
+```python
+prompt_file = Path("prompts/feasibility_prompt.txt")
+template = prompt_file.read_text()
+prompt = template.format(problem_text=...)
+```
+
+LLM responses expect valid JSON where specified.
+
+## Tech Stack
+
+- **ML**: PyCaret, scikit-learn, XGBoost, LightGBM, imbalanced-learn
+- **LLM**: Hugging Face API, Google Gemini
+- **Embeddings**: sentence-transformers (all-MiniLM-L6-v2), FAISS
+- **Web**: Flask, Flask-CORS
+- **Integrations**: Kaggle API, PyGithub, GitPython
+
+## Conventions
+
+- Config is YAML; use `config.get('section', {})` with defaults
+- Logging via `logging.getLogger(__name__)`
+- Problems/datasets: dicts with `title`, `description`, `source`, etc.
+- Outputs: `outputs/models/`, `outputs/code/`, `outputs/logs/`

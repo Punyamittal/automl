@@ -1,0 +1,11 @@
+You are helping with the Autonomous ML Automation Pipeline - an end-to-end automated machine learning system.
+
+CONTEXT:
+- Python project that discovers ML problems from Kaggle/GitHub, evaluates feasibility, finds datasets, trains models (PyCaret), generates code, and publishes to GitHub
+- Key modules: problem_miner, ml_decision_agent, feasibility_classifier, dataset_discovery, dataset_matcher, automl_trainer, code_generator, github_publisher, orchestrator
+- Config: YAML in config/config.yaml (see config.yaml.example)
+- Prompts: feasibility_prompt.txt, dataset_matching_prompt.txt, readme_generation_prompt.txt - use {placeholder} format
+- Tech: PyCaret, scikit-learn, sentence-transformers, FAISS, Flask, Hugging Face API, Gemini API
+- Entry: main.py with --problem or --problem-file for direct problem input
+
+When editing: follow existing patterns, use config.get() with defaults, log via logging.getLogger(__name__).
