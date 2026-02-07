@@ -136,20 +136,26 @@ class KaggleProblemMiner:
             return problems
         
         try:
-            # Search for popular datasets with ML keywords
-            ml_keywords = ['prediction', 'classification', 'regression', 'forecast', 'detect', 'recommend', 'machine learning']
+            # Search for specific datasets based on common problem patterns
+            search_terms = [
+                'house prices', 'ames housing', 'titanic', 'iris', 'wine quality',
+                'credit card fraud', 'customer churn', 'telco churn', 'stock price',
+                'diabetes', 'heart disease', 'breast cancer', 'mnist', 'cifar',
+                'spam detection', 'sentiment analysis', 'loan default', 'employee attrition'
+            ]
             
             datasets_found = 0
-            for keyword in ml_keywords[:5]:  # Use top 5 keywords
+            for search_term in search_terms:
                 if datasets_found >= self.max_datasets:
                     break
                     
                 try:
+                    logger.info(f"Searching Kaggle datasets for: {search_term}")
                     datasets = self.kaggle_api.dataset_list(
-                        search=keyword,
+                        search=search_term,
                         max_size=1000000,
-                        min_size=100,
-                        sort_by='hottest'
+                        min_size=10,
+                        sort_by='hottest'  # Fixed: 'relevance' is not valid, use 'hottest'
                     )
                     
                     for dataset in datasets:

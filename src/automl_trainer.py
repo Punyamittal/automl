@@ -16,13 +16,21 @@ import warnings
 warnings.filterwarnings('ignore')
 
 try:
-    from pycaret.classification import *
-    from pycaret.regression import *
-    from pycaret.clustering import *
-    PYCARET_AVAILABLE = True
-except ImportError:
+    import sys
+    import logging
+    # Check Python version for PyCaret compatibility
+    if sys.version_info >= (3, 12):
+        logging.warning("PyCaret only supports python 3.9, 3.10, 3.11. Your actual Python version: %s. Please DOWNGRADE your Python version." % str(sys.version_info))
+        PYCARET_AVAILABLE = False
+    else:
+        from pycaret.classification import *
+        from pycaret.regression import *
+        from pycaret.clustering import *
+        PYCARET_AVAILABLE = True
+        logging.info("PyCaret imported successfully")
+except ImportError as e:
     PYCARET_AVAILABLE = False
-    logging.warning("PyCaret not available. Install with: pip install pycaret")
+    logging.warning(f"PyCaret not available: {e}. Install with: pip install pycaret")
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +51,9 @@ class AutoMLTrainer:
         self.models_dir.mkdir(parents=True, exist_ok=True)
         
         if not PYCARET_AVAILABLE:
-            raise ImportError("PyCaret is required but not installed")
+            logger.warning("PyCaret not available. This trainer requires PyCaret. Consider using sklearn trainer instead.")
+            # Don't raise ImportError here - let orchestrator handle the fallback
+            raise ImportError("PyCaret is required but not available. Use Python 3.9-3.11 or install sklearn trainer.")
     
     def train(self, dataset_path: str, task_type: str, target_column: Optional[str] = None) -> Dict:
         """Train models for the given dataset and task type."""

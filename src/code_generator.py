@@ -357,7 +357,7 @@ scikit-learn>=1.3.0
         dataset_name = dataset.get('title', dataset.get('id', 'Unknown Dataset'))
         dataset_url = dataset.get('url', '')
         task_type = training_result.get('task_type', 'classification')
-        metrics = training_result.get('metrics', {})
+        metrics = training_result.get('test_metrics', training_result.get('metrics', {}))
         
         # Extract problem understanding from ML classification
         ml_classification = problem.get('ml_classification', {})

@@ -16,9 +16,17 @@ logger = logging.getLogger(__name__)
 
 try:
     import google.generativeai as genai
+    import google.genai as genai_new
     GEMINI_AVAILABLE = True
+    GEMINI_NEW_AVAILABLE = True
 except ImportError:
-    GEMINI_AVAILABLE = False
+    try:
+        import google.generativeai as genai
+        GEMINI_AVAILABLE = True
+        GEMINI_NEW_AVAILABLE = False
+    except ImportError:
+        GEMINI_AVAILABLE = False
+        GEMINI_NEW_AVAILABLE = False
     logger.warning("google-generativeai not installed. Gemini API will not be available.")
 
 
@@ -36,6 +44,13 @@ class GeminiClient:
         if not GEMINI_AVAILABLE:
             raise ImportError("google-generativeai package not installed. Install with: pip install google-generativeai")
         
+        # Use new genai package if available, otherwise fall back to old one
+        self.use_new_api = GEMINI_NEW_AVAILABLE
+        if self.use_new_api:
+            logger.info("Using new google.genai package")
+        else:
+            logger.warning("Using deprecated google.generativeai package. Consider upgrading to google.genai")
+        
         # Get API key from parameter, environment, or config
         self.api_key = api_key or os.getenv('GEMINI_API_KEY')
         if not self.api_key:
@@ -47,11 +62,28 @@ class GeminiClient:
         
         self.model_name = model_name
         
-        # Configure Gemini
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(model_name)
+        # Use correct model names for new API
+        if self.use_new_api:
+            # Map old model names to new ones
+            model_mapping = {
+                'gemini-pro': 'gemini-2.5-pro',
+                'gemini-pro-vision': 'gemini-2.5-pro',
+                'gemini-1.5-pro': 'gemini-2.5-pro',
+                'gemini-1.5-flash': 'gemini-2.5-flash'
+            }
+            self.model_name = model_mapping.get(model_name, model_name)
+            logger.info(f"Mapped model name: {model_name} -> {self.model_name}")
         
-        logger.info(f"Gemini client initialized with model: {model_name}")
+        # Configure Gemini with appropriate package
+        if self.use_new_api:
+            # Use new google.genai package
+            self.client = genai_new.Client(api_key=self.api_key)
+            logger.info(f"Gemini client initialized with new API and model: {self.model_name}")
+        else:
+            # Use old google.generativeai package
+            genai.configure(api_key=self.api_key)
+            self.model = genai.GenerativeModel(model_name)
+            logger.warning(f"Gemini client initialized with deprecated API and model: {model_name}")
     
     def enhance_problem_statement(self, problem_statement: str) -> Dict:
         """
@@ -72,15 +104,24 @@ class GeminiClient:
         full_prompt = prompt.format(raw_problem_text=problem_statement)
         
         try:
-            response = self.model.generate_content(
-                full_prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.3,  # Slightly higher for creativity in enhancement
-                    max_output_tokens=2000,
+            # Call Gemini API
+            if self.use_new_api:
+                # Use new google.genai package
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=full_prompt
                 )
-            )
-            
-            response_text = response.text.strip()
+                response_text = response.text
+            else:
+                # Use old google.generativeai package
+                response = self.model.generate_content(
+                    full_prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.3,  # Slightly higher for creativity in enhancement
+                        max_output_tokens=2000,
+                    )
+                )
+                response_text = response.text.strip()
             
             # Parse the enhanced problem
             result = self._parse_canonicalizer_response(response_text)
@@ -116,7 +157,23 @@ class GeminiClient:
                 }
                 
         except Exception as e:
-            logger.error(f"Error enhancing problem statement: {e}")
+            error_msg = str(e)
+            if "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
+                logger.warning("Gemini API quota exceeded. Using fallback for problem enhancement.")
+                return {
+                    'enhanced_problem': {
+                        'problem_type': 'classification',
+                        'target_variable': 'target',
+                        'input_features': ['feature1', 'feature2', 'feature3'],
+                        'intended_use': 'business decision support',
+                        'data_source': 'historical data',
+                        'evaluation_metric': 'accuracy'
+                    },
+                    'enhanced_statement': problem_statement,
+                    'raw_response': ''
+                }
+            else:
+                logger.error(f"Error enhancing problem statement: {e}")
             # Return safe defaults
             return {
                 'enhanced_problem': {
@@ -159,15 +216,23 @@ class GeminiClient:
         
         try:
             # Call Gemini API
-            response = self.model.generate_content(
-                full_prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.2,  # Lower temperature for more structured output
-                    max_output_tokens=2000,
+            if self.use_new_api:
+                # Use new google.genai package
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=full_prompt
                 )
-            )
-            
-            response_text = response.text.strip()
+                response_text = response.text
+            else:
+                # Use old google.generativeai package
+                response = self.model.generate_content(
+                    full_prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.2,  # Lower temperature for more structured output
+                        max_output_tokens=2000,
+                    )
+                )
+                response_text = response.text.strip()
             
             # Parse the response
             result = self._parse_canonicalizer_response(response_text)
@@ -178,7 +243,27 @@ class GeminiClient:
             return result
             
         except Exception as e:
-            logger.error(f"Gemini API call failed: {e}")
+            error_msg = str(e)
+            if "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
+                logger.warning("Gemini API quota exceeded. Disabling Gemini for this run.")
+                # Return safe fallback for quota exceeded
+                return {
+                    'is_ml_problem': True,
+                    'confidence': 0.7,
+                    'reasoning': 'Using fallback due to API quota limits',
+                    'problem_type': 'classification',
+                    'canonical_problem': {
+                        'problem_type': 'classification',
+                        'target_variable': 'target',
+                        'input_features': ['feature1', 'feature2', 'feature3'],
+                        'intended_use': 'business decision support',
+                        'data_source': 'historical data',
+                        'evaluation_metric': 'accuracy'
+                    },
+                    'raw_response': ''
+                }
+            else:
+                logger.error(f"Gemini API call failed: {e}")
             # Return safe fallback
             return {
                 'is_ml_problem': False,
@@ -219,18 +304,26 @@ class GeminiClient:
         
         try:
             # Call Gemini API
-            response = self.model.generate_content(
-                full_prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.3,
-                    max_output_tokens=2000,  # Increased for structured ML problem output
+            if self.use_new_api:
+                # Use new google.genai package
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=full_prompt
                 )
-            )
-            
-            response_text = response.text.strip()
+                response_text = response.text
+            else:
+                # Use old google.generativeai package
+                response = self.model.generate_content(
+                    full_prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.3,
+                        max_output_tokens=1500,  # Increased for structured ML problem output
+                    )
+                )
+                response_text = response.text.strip()
             
             # Parse the response
-            result = self._parse_response(response_text)
+            result = self._parse_enhancer_response(response_text)
             
             # Add raw response for debugging
             result['raw_response'] = response_text
@@ -238,7 +331,19 @@ class GeminiClient:
             return result
             
         except Exception as e:
-            logger.error(f"Gemini API call failed: {e}")
+            error_msg = str(e)
+            if "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
+                logger.warning("Gemini API quota exceeded. Using fallback for Reddit analysis.")
+                return {
+                    'is_ml_problem': False,
+                    'confidence': 0.0,
+                    'reasoning': 'API quota exceeded, using fallback',
+                    'problem_type': 'discussion',
+                    'extracted_problem': '',
+                    'raw_response': ''
+                }
+            else:
+                logger.error(f"Gemini API call failed: {e}")
             # Return safe fallback
             return {
                 'is_ml_problem': False,

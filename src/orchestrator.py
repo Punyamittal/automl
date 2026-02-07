@@ -63,6 +63,9 @@ class Orchestrator:
         automl_config = self.config.get('automl', {})
         # Use sklearn framework for Python 3.12+ compatibility
         automl_config['framework'] = 'sklearn'
+        
+        # Use sklearn trainer directly for Python 3.12+ compatibility
+        from .automl_trainer_sklearn import AutoMLTrainer
         self.automl_trainer = AutoMLTrainer(automl_config)
         self.code_generator = CodeGenerator(self.config.get('code_generation', {}))
         self.github_publisher = GitHubPublisher(self.config.get('github', {}))
@@ -138,12 +141,18 @@ class Orchestrator:
                     output_path = download_dir / f"{dataset_slug.replace('-', '_')}"
                     output_path.mkdir(exist_ok=True)
                     
-                    self.dataset_discovery.kaggle_api.dataset_download_files(
-                        owner_slug, 
-                        dataset_slug,
-                        path=str(output_path),
-                        unzip=True
-                    )
+                    # Try the simplest approach first
+                    try:
+                        logger.info(f"Downloading Kaggle dataset: {dataset_id}")
+                        self.dataset_discovery.kaggle_api.dataset_download_files(
+                            owner_slug, 
+                            dataset_slug,
+                            unzip=True
+                        )
+                        logger.info("Download completed successfully")
+                    except Exception as e1:
+                        logger.warning(f"Download failed: {e1}")
+                        raise Exception(f"Failed to download Kaggle dataset: {e1}")
                     
                     # Find CSV files in downloaded directory
                     csv_files = list(output_path.rglob("*.csv"))
@@ -1146,6 +1155,11 @@ class Orchestrator:
             logger.info("\n[Stage 6.5] Model Testing & Evaluation")
             test_result = self._test_model(dataset_path, training_result, task_type)
             pipeline_results['stages']['testing'] = test_result
+            
+            # Merge test metrics into training_result for code generation
+            if test_result.get('success') and 'test_metrics' in test_result:
+                training_result['test_metrics'] = test_result['test_metrics']
+                logger.info("Merged test metrics into training_result for README generation")
             
             # Stage 7: Code Generation
             logger.info("\n[Stage 7] Code Generation")
