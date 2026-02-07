@@ -364,7 +364,7 @@ class MLDecisionAgent:
         
         NOTE: In direct problem mode, uses canonicalized information if available.
         """
-        # Check if canonicalized information is available (from Gemini canonicalization)
+        # Check if canonicalized information is available (from LLM canonicalization)
         canonical_problem = problem.get('canonical_problem', {})
         if canonical_problem:
             # Use canonicalized information - more reliable

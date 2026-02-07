@@ -15,14 +15,12 @@ llm:
   token: ""  # Optional: HuggingFace token for better rate limits
   max_retries: 3
   timeout: 60
-  gemini_api_key: ""  # Optional: Gemini API key (can also set GEMINI_API_KEY env var)
 
-# Gemini Configuration (for analyzing Reddit posts)
-gemini:
-  enabled: true  # Set to true to use Gemini for Reddit post analysis
-  api_key: ""  # Gemini API key (or set GEMINI_API_KEY env var, or use llm.gemini_api_key)
-  model_name: "gemini-pro"  # Model to use: gemini-pro, gemini-pro-vision, etc.
-  min_confidence: 0.6  # Minimum confidence threshold for accepting posts as ML problems
+# Ollama Configuration (LOCAL - no API key needed)
+ollama:
+  enabled: true  # Use local Ollama for problem analysis
+  base_url: "http://localhost:11434"  # Ollama API URL
+  model_name: "llama3.2"  # Run `ollama list` to see available models (llama3.2, mistral, etc.)
 
 # Direct Problem Input (Alternative to mining)
 # Use this to provide a problem statement directly instead of mining
@@ -72,14 +70,17 @@ feasibility:
     - "how do i"
     - "tutorial"
 
-# Dataset Discovery
+# Dataset Discovery (HuggingFace + UCI = no account needed, best for automation)
 dataset_discovery:
   sources:
     - kaggle
     - huggingface
     - uci
+    - datagov
+    - worldbank
+    - aws_open_data
   kaggle:
-    enabled: true
+    enabled: false  # Requires ~/.kaggle/kaggle.json
     max_results: 20
   huggingface:
     enabled: true
@@ -87,6 +88,15 @@ dataset_discovery:
   uci:
     enabled: true
     max_results: 20
+  datagov:
+    enabled: true
+    max_results: 10
+  worldbank:
+    enabled: true
+    max_results: 5
+  aws_open_data:
+    enabled: false
+    max_results: 5
   min_dataset_size: 100
   max_dataset_size: 1000000
 
@@ -94,7 +104,7 @@ dataset_discovery:
 dataset_matching:
   similarity_threshold: 0.4  # Lowered from 0.6 to allow more matches
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
-  top_k_matches: 3
+  top_k_matches: 5  # Try more datasets when first download fails
 
 # Problem Registry (Prevents duplicate problems)
 problem_registry:

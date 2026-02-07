@@ -1,7 +1,9 @@
 """
 Dataset Discovery Module
 
-Searches for relevant datasets from Kaggle, HuggingFace, and UCI ML Repository.
+Searches for relevant datasets from:
+- Kaggle, HuggingFace, UCI ML Repository (primary)
+- data.gov, World Bank, AWS Open Data (secondary)
 """
 
 import os
@@ -15,11 +17,34 @@ from huggingface_hub import list_datasets
 try:
     from huggingface_hub import DatasetFilter
 except ImportError:
-    # DatasetFilter may not be available in all versions
     DatasetFilter = None
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+# UCI ML Repository: popular datasets (id -> (name, keywords)) - no account needed, direct HTTP
+UCI_DATASETS = {
+    53: ("Iris", ["iris", "flower", "classification"]),
+    45: ("Heart Disease", ["heart", "disease", "medical", "health", "classification"]),
+    186: ("Wine Quality", ["wine", "quality", "regression", "classification"]),
+    17: ("Breast Cancer Wisconsin", ["breast", "cancer", "medical", "classification"]),
+    222: ("Bank Marketing", ["bank", "marketing", "classification"]),
+    2: ("Adult Census", ["adult", "census", "income", "classification"]),
+    320: ("Student Performance", ["student", "performance", "education", "regression"]),
+    352: ("Online Retail", ["retail", "online", "clustering", "transaction"]),
+    109: ("Wine", ["wine", "classification", "chemical"]),
+    19: ("Car Evaluation", ["car", "evaluation", "classification"]),
+    31: ("Credit Approval", ["credit", "approval", "classification"]),
+    296: ("Dermatology", ["dermatology", "skin", "classification"]),
+    15: ("Breast Cancer", ["breast", "cancer", "classification"]),
+    12: ("Heart Disease (Statlog)", ["heart", "disease", "classification"]),
+    334: ("Dry Bean", ["bean", "agriculture", "classification"]),
+    148: ("Spambase", ["spam", "email", "classification"]),
+    159: ("Letter Recognition", ["letter", "recognition", "classification"]),
+    146: ("Mushroom", ["mushroom", "classification"]),
+    41: ("Soybean", ["soybean", "agriculture", "classification"]),
+    73: ("Mushroom (Agaricus)", ["mushroom", "classification"]),
+}
 
 
 class DatasetDiscovery:
@@ -30,6 +55,9 @@ class DatasetDiscovery:
         self.kaggle_config = config.get('kaggle', {})
         self.huggingface_config = config.get('huggingface', {})
         self.uci_config = config.get('uci', {})
+        self.datagov_config = config.get('datagov', {})
+        self.worldbank_config = config.get('worldbank', {})
+        self.aws_config = config.get('aws_open_data', {})
         self.min_size = config.get('min_dataset_size', 100)
         self.max_size = config.get('max_dataset_size', 1000000)
         
@@ -72,10 +100,28 @@ class DatasetDiscovery:
             all_datasets.extend(hf_datasets)
         
         if self.uci_config.get('enabled', False):
-            logger.info("Searching UCI datasets...")
+            logger.info("Searching UCI ML Repository datasets...")
             uci_datasets = self._search_uci(keywords, task_type)
             logger.info(f"Found {len(uci_datasets)} UCI datasets")
             all_datasets.extend(uci_datasets)
+        
+        if self.datagov_config.get('enabled', False):
+            logger.info("Searching data.gov datasets...")
+            datagov_datasets = self._search_datagov(keywords, task_type)
+            logger.info(f"Found {len(datagov_datasets)} data.gov datasets")
+            all_datasets.extend(datagov_datasets)
+        
+        if self.worldbank_config.get('enabled', False):
+            logger.info("Searching World Bank Open Data...")
+            wb_datasets = self._search_worldbank(keywords, task_type)
+            logger.info(f"Found {len(wb_datasets)} World Bank datasets")
+            all_datasets.extend(wb_datasets)
+        
+        if self.aws_config.get('enabled', False):
+            logger.info("Searching AWS Open Data Registry...")
+            aws_datasets = self._search_aws_opendata(keywords, task_type)
+            logger.info(f"Found {len(aws_datasets)} AWS Open Data datasets")
+            all_datasets.extend(aws_datasets)
         
         # Filter and rank datasets
         filtered_datasets = self._filter_datasets(all_datasets)
@@ -221,26 +267,136 @@ class DatasetDiscovery:
         return datasets
     
     def _search_uci(self, keywords: List[str], task_type: str) -> List[Dict]:
-        """Search UCI ML Repository datasets."""
+        """Search UCI ML Repository - keyword match on curated popular datasets. No account needed."""
         datasets = []
         max_results = self.uci_config.get('max_results', 20)
+        keywords_lower = [k.lower() for k in keywords]
         
         try:
-            # UCI doesn't have a great API, so we'll use a simple search
-            # This is a simplified approach - in production, you'd scrape the UCI website
-            uci_url = "https://archive.ics.uci.edu/ml/datasets.php"
-            
-            # For now, return empty list as UCI scraping requires more complex parsing
-            # In a full implementation, you would:
-            # 1. Scrape the UCI dataset listing page
-            # 2. Search for keywords in dataset names/descriptions
-            # 3. Extract metadata
-            
-            logger.info("UCI dataset search not fully implemented (requires web scraping)")
-            
+            for uci_id, (name, dataset_keywords) in UCI_DATASETS.items():
+                if len(datasets) >= max_results:
+                    break
+                score = sum(1 for kw in keywords_lower if any(dk in kw or kw in dk for dk in dataset_keywords))
+                if score > 0 or not keywords:
+                    datasets.append({
+                        'source': 'uci',
+                        'id': str(uci_id),
+                        'title': name,
+                        'description': f"UCI ML Repository: {name}",
+                        'size': 0,
+                        'files': [],
+                        'download_count': 0,
+                        'usability_rating': 0.8,
+                        'url': f"https://archive.ics.uci.edu/dataset/{uci_id}/{name.lower().replace(' ', '+')}",
+                        'tags': dataset_keywords
+                    })
         except Exception as e:
             logger.error(f"Error searching UCI: {e}")
         
+        return datasets
+    
+    def _search_datagov(self, keywords: List[str], task_type: str) -> List[Dict]:
+        """Search data.gov via CKAN API - government, economics, health, transport datasets."""
+        datasets = []
+        max_results = self.datagov_config.get('max_results', 10)
+        
+        try:
+            url = "https://catalog.data.gov/api/3/action/package_search"
+            q = ' '.join(keywords[:3]) if keywords else "dataset"
+            resp = requests.get(url, params={'q': q, 'rows': max_results}, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get('result', {}).get('results', [])
+            for pkg in results:
+                resources = pkg.get('resources', [])
+                csv_resources = [r for r in resources if r.get('format', '').upper() in ('CSV', 'JSON')]
+                if not csv_resources and resources:
+                    csv_resources = resources[:1]
+                download_url = csv_resources[0].get('url') if csv_resources else None
+                datasets.append({
+                    'source': 'datagov',
+                    'id': pkg.get('id', '') or pkg.get('name', ''),
+                    'title': pkg.get('title', pkg.get('name', 'Unknown')),
+                    'description': (pkg.get('notes') or '')[:500],
+                    'size': 0,
+                    'files': [r.get('url') for r in csv_resources[:3] if r.get('url')],
+                    'download_url': download_url,
+                    'download_count': 0,
+                    'usability_rating': 0.6,
+                    'url': f"https://catalog.data.gov/dataset/{pkg.get('name', '')}",
+                    'tags': [t.get('name', '') for t in pkg.get('tags', []) if isinstance(t, dict)]
+                })
+        except Exception as e:
+            logger.error(f"Error searching data.gov: {e}")
+        
+        return datasets
+    
+    def _search_worldbank(self, keywords: List[str], task_type: str) -> List[Dict]:
+        """Search World Bank Open Data - economy, development, population. Good for economics/finance."""
+        economics_keywords = {'economy', 'gdp', 'income', 'population', 'development', 'finance', 'economic'}
+        if not any(kw.lower() in economics_keywords for kw in keywords):
+            return []
+        datasets = []
+        max_results = self.worldbank_config.get('max_results', 5)
+        
+        try:
+            # World Bank has a public API - return placeholder entries that downloader can fetch
+            datasets.append({
+                'source': 'worldbank',
+                'id': 'NY.GDP.MKTP.CD',
+                'title': 'World Bank GDP Data',
+                'description': 'GDP (current US$) from World Bank Open Data',
+                'size': 0,
+                'files': [],
+                'download_count': 0,
+                'usability_rating': 0.7,
+                'url': 'https://data.worldbank.org',
+                'tags': ['gdp', 'economy', 'world bank']
+            })
+            datasets.append({
+                'source': 'worldbank',
+                'id': 'SP.POP.TOTL',
+                'title': 'World Bank Population Data',
+                'description': 'Population total from World Bank Open Data',
+                'size': 0,
+                'files': [],
+                'download_count': 0,
+                'usability_rating': 0.7,
+                'url': 'https://data.worldbank.org',
+                'tags': ['population', 'demographics']
+            })
+        except Exception as e:
+            logger.error(f"Error searching World Bank: {e}")
+        
+        return datasets[:max_results]
+    
+    def _search_aws_opendata(self, keywords: List[str], task_type: str) -> List[Dict]:
+        """AWS Open Data Registry - big data, satellite, climate. Returns known public buckets."""
+        datasets = []
+        max_results = self.aws_config.get('max_results', 5)
+        bucket_keywords = {
+            'climate': ('noaa-gsd-hourly-precipitation', 'NOAA Climate Data'),
+            'news': ('commoncrawl', 'Common Crawl News'),
+            'genomics': ('1000genomes', '1000 Genomes'),
+            'satellite': ('sentinel-2-l2a', 'Sentinel-2 Satellite'),
+        }
+        kw_lower = ' '.join(k for k in keywords).lower()
+        for bk, (bucket, title) in bucket_keywords.items():
+            if len(datasets) >= max_results:
+                break
+            if bk in kw_lower or not keywords:
+                datasets.append({
+                    'source': 'aws_opendata',
+                    'id': f"s3://{bucket}",
+                    'title': title,
+                    'description': f"AWS Open Data bucket: {bucket}",
+                    'size': 0,
+                    'files': [],
+                    'download_count': 0,
+                    'usability_rating': 0.5,
+                    'url': f"https://registry.opendata.aws/{bucket}",
+                    'tags': [bk]
+                })
         return datasets
     
     def _filter_datasets(self, datasets: List[Dict]) -> List[Dict]:
@@ -272,7 +428,8 @@ class DatasetDiscovery:
             
             # Add default description if missing
             if not dataset.get('description'):
-                dataset['description'] = f"Kaggle dataset: {dataset.get('title', dataset.get('id', 'Unknown'))}"
+                source = dataset.get('source', 'unknown')
+                dataset['description'] = f"{source} dataset: {dataset.get('title', dataset.get('id', 'Unknown'))}"
             
             filtered.append(dataset)
             logger.info(f"✅ Passed filter: {dataset.get('title', dataset.get('id', 'Unknown'))}")

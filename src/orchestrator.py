@@ -6,6 +6,7 @@ Main pipeline orchestrator that coordinates all modules.
 
 import logging
 import json
+import re
 import yaml
 import os
 from pathlib import Path
@@ -45,9 +46,9 @@ class Orchestrator:
         self._setup_logging()
         
         # Initialize modules
-        # Pass full config to problem_miner so it can access gemini, llm, kaggle, and github configs
+        # Pass full config to problem_miner so it can access ollama, llm, kaggle, and github configs
         problem_miner_config = self.config.get('problem_miner', {}).copy()
-        problem_miner_config['gemini'] = self.config.get('gemini', {})
+        problem_miner_config['ollama'] = self.config.get('ollama', {})
         problem_miner_config['llm'] = self.config.get('llm', {})
         problem_miner_config['kaggle_problem_mining'] = self.config.get('kaggle_problem_mining', {'enabled': True})
         problem_miner_config['github_problem_mining'] = self.config.get('github_problem_mining', {'enabled': True})
@@ -110,16 +111,10 @@ class Orchestrator:
                 config['llm'] = {}
             config['llm']['token'] = os.getenv('HUGGINGFACE_TOKEN')
         
-        # Gemini API Key (from env or config)
-        if os.getenv('GEMINI_API_KEY'):
-            if 'gemini' not in config:
-                config['gemini'] = {}
-            config['gemini']['api_key'] = os.getenv('GEMINI_API_KEY')
-            # Also set in llm section for backward compatibility
-            if 'llm' not in config:
-                config['llm'] = {}
-            config['llm']['gemini_api_key'] = os.getenv('GEMINI_API_KEY')
-        
+        # Default Ollama config when not present (local LLM, no API key)
+        if 'ollama' not in config:
+            config['ollama'] = {'enabled': True, 'base_url': 'http://localhost:11434', 'model_name': 'llama3.2'}
+
         return config
     
     def _download_dataset(self, dataset: Dict, task_type: str) -> Optional[str]:
@@ -136,17 +131,14 @@ class Orchestrator:
                 # Parse owner/dataset from id (format: "owner/dataset")
                 ref_parts = dataset_id.split('/')
                 if len(ref_parts) == 2:
-                    owner_slug, dataset_slug = ref_parts
                     logger.info(f"Downloading Kaggle dataset: {dataset_id}")
-                    output_path = download_dir / f"{dataset_slug.replace('-', '_')}"
-                    output_path.mkdir(exist_ok=True)
+                    download_dir.mkdir(parents=True, exist_ok=True)
                     
-                    # Try the simplest approach first
                     try:
-                        logger.info(f"Downloading Kaggle dataset: {dataset_id}")
+                        # Pass path parameter so download goes to our directory
                         self.dataset_discovery.kaggle_api.dataset_download_files(
-                            owner_slug, 
-                            dataset_slug,
+                            dataset_id,
+                            path=str(download_dir),
                             unzip=True
                         )
                         logger.info("Download completed successfully")
@@ -154,8 +146,8 @@ class Orchestrator:
                         logger.warning(f"Download failed: {e1}")
                         raise Exception(f"Failed to download Kaggle dataset: {e1}")
                     
-                    # Find CSV files in downloaded directory
-                    csv_files = list(output_path.rglob("*.csv"))
+                    # Find CSV files (Kaggle extracts to dataset_slug folder or root)
+                    csv_files = list(download_dir.rglob("*.csv"))
                     if csv_files:
                         logger.info(f"Downloaded dataset to {csv_files[0]}")
                         return str(csv_files[0])
@@ -190,6 +182,72 @@ class Orchestrator:
                 return str(output_file)
             except Exception as e:
                 logger.warning(f"Failed to download HuggingFace dataset: {e}")
+        
+        elif dataset_source == 'uci':
+            try:
+                try:
+                    from ucimlrepo import fetch_ucirepo
+                except ImportError:
+                    logger.warning("ucimlrepo not installed. Run: pip install ucimlrepo")
+                    raise ImportError("ucimlrepo required for UCI downloads")
+                uci_id = int(dataset_id)
+                logger.info(f"Downloading UCI dataset (id={uci_id})...")
+                uci_data = fetch_ucirepo(id=uci_id)
+                if hasattr(uci_data.data, 'features') and uci_data.data.features is not None:
+                    df = uci_data.data.features.copy()
+                    if hasattr(uci_data.data, 'targets') and uci_data.data.targets is not None:
+                        df['target'] = uci_data.data.targets.iloc[:, 0]
+                elif hasattr(uci_data.data, 'original') and uci_data.data.original is not None:
+                    df = uci_data.data.original
+                else:
+                    raise ValueError("No usable data in UCI dataset")
+                output_file = download_dir / f"uci_{uci_id}.csv"
+                df.to_csv(output_file, index=False)
+                logger.info(f"Downloaded UCI dataset to {output_file} ({len(df)} rows)")
+                return str(output_file)
+            except Exception as e:
+                logger.warning(f"Failed to download UCI dataset: {e}")
+        
+        elif dataset_source == 'datagov':
+            try:
+                download_url = dataset.get('download_url') or (dataset.get('files') or [None])[0]
+                if download_url:
+                    logger.info(f"Downloading data.gov dataset from {download_url[:80]}...")
+                    r = requests.get(download_url, timeout=60)
+                    r.raise_for_status()
+                    ext = 'json' if 'json' in download_url.lower() else 'csv'
+                    output_file = download_dir / f"datagov_{dataset_id}.{ext}"
+                    with open(output_file, 'wb') as f:
+                        f.write(r.content)
+                    if ext == 'json':
+                        import pandas as pd
+                        df = pd.read_json(output_file)
+                        csv_path = output_file.with_suffix('.csv')
+                        df.to_csv(csv_path, index=False)
+                        output_file = csv_path
+                    logger.info(f"Downloaded data.gov dataset to {output_file}")
+                    return str(output_file)
+            except Exception as e:
+                logger.warning(f"Failed to download data.gov dataset: {e}")
+        
+        elif dataset_source == 'worldbank':
+            try:
+                import pandas as pd
+                indicator = dataset_id
+                url = f"https://api.worldbank.org/v2/country/all/indicator/{indicator}?format=json&per_page=10000"
+                logger.info(f"Downloading World Bank data: {indicator}...")
+                r = requests.get(url, timeout=30)
+                r.raise_for_status()
+                data = r.json()
+                if len(data) >= 2 and data[1]:
+                    rows = [{'country': d.get('country', {}).get('value'), 'year': d.get('date'), 'value': d.get('value')} for d in data[1]]
+                    df = pd.DataFrame(rows).dropna(subset=['value'])
+                    output_file = download_dir / f"worldbank_{indicator}.csv"
+                    df.to_csv(output_file, index=False)
+                    logger.info(f"Downloaded World Bank dataset to {output_file} ({len(df)} rows)")
+                    return str(output_file)
+            except Exception as e:
+                logger.warning(f"Failed to download World Bank dataset: {e}")
         
         # Fallback: Create synthetic dataset for demonstration
         logger.warning("Could not download dataset. Creating synthetic dataset for demonstration.")
@@ -574,83 +632,86 @@ class Orchestrator:
                 'mined_at': datetime.now().isoformat()
             }
             
-            # Stage 1: Problem Enhancement with Gemini (REQUIRED - always enhance, never reject)
-            gemini_config = self.config.get('gemini', {})
-            gemini_client = None
-            
-            if gemini_config.get('enabled', False):
+            # Stage 1: Problem Enhancement with Ollama (local LLM)
+            ollama_config = self.config.get('ollama', {})
+            llm_client = None
+
+            if ollama_config.get('enabled', False):
                 try:
-                    from .gemini_client import GeminiClient
-                    api_key = gemini_config.get('api_key') or self.config.get('llm', {}).get('gemini_api_key')
-                    if api_key:
-                        gemini_client = GeminiClient(api_key=api_key, model_name=gemini_config.get('model_name', 'gemini-pro'))
-                        logger.info("\n[Stage 1] Problem Enhancement with Gemini")
-                        logger.info("Enhancing problem statement to make it a well-formed ML problem...")
+                    from .ollama_client import OllamaClient
+                    llm_client = OllamaClient(
+                        base_url=ollama_config.get('base_url', 'http://localhost:11434'),
+                        model_name=ollama_config.get('model_name', 'llama3.2')
+                    )
+                    logger.info("\n[Stage 1] Problem Enhancement with Ollama (local)")
+                    logger.info(f"Enhancing problem statement using {ollama_config.get('model_name', 'llama3.2')}...")
+                except Exception as e:
+                    logger.warning(f"Ollama initialization failed: {e}. Falling back to defaults.")
+
+            if llm_client:
+                try:
+                    # First attempt: Canonicalize the problem
+                    canonical_result = llm_client.analyze_problem_statement(problem_statement)
+                    
+                    if canonical_result.get('is_ml_problem') and canonical_result.get('canonical_problem'):
+                        canonical = canonical_result['canonical_problem']
+                        # Update problem with canonicalized information
+                        problem['canonical_problem'] = canonical
+                        problem['problem_type'] = canonical.get('problem_type', 'unknown')
+                        problem['target_variable'] = canonical.get('target_variable', '')
+                        problem['input_features'] = canonical.get('input_features', [])
+                        problem['intended_use'] = canonical.get('intended_use', '')
+                        problem['data_source'] = canonical.get('data_source', '')
+                        problem['evaluation_metric'] = canonical.get('evaluation_metric', '')
                         
-                        # First attempt: Canonicalize the problem
-                        canonical_result = gemini_client.analyze_problem_statement(problem_statement)
+                        # Update full_text with enhanced problem statement
+                        enhanced_statement = f"Predict {canonical.get('target_variable', 'target')} using {', '.join(canonical.get('input_features', [])[:3])}"
+                        problem['full_text'] = enhanced_statement
+                        problem['description'] = enhanced_statement
                         
-                        if canonical_result.get('is_ml_problem') and canonical_result.get('canonical_problem'):
-                            canonical = canonical_result['canonical_problem']
-                            # Update problem with canonicalized information
-                            problem['canonical_problem'] = canonical
-                            problem['problem_type'] = canonical.get('problem_type', 'unknown')
-                            problem['target_variable'] = canonical.get('target_variable', '')
-                            problem['input_features'] = canonical.get('input_features', [])
-                            problem['intended_use'] = canonical.get('intended_use', '')
-                            problem['data_source'] = canonical.get('data_source', '')
-                            problem['evaluation_metric'] = canonical.get('evaluation_metric', '')
+                        logger.info(f"[ENHANCED] Problem Type: {canonical.get('problem_type')}")
+                        logger.info(f"  Target: {canonical.get('target_variable')}")
+                        logger.info(f"  Features: {', '.join(canonical.get('input_features', [])[:5])}")
+                        logger.info(f"  Enhanced Statement: {enhanced_statement}")
+                    else:
+                        # If canonicalization failed, enhance the problem statement
+                        logger.warning(f"Initial canonicalization incomplete: {canonical_result.get('reasoning', 'Unknown')}")
+                        logger.info("Enhancing problem statement to make it complete...")
+                        
+                        # Use LLM to enhance the problem
+                        enhanced_result = llm_client.enhance_problem_statement(problem_statement)
+                        
+                        if enhanced_result.get('enhanced_problem'):
+                            enhanced = enhanced_result['enhanced_problem']
+                            problem['canonical_problem'] = enhanced
+                            problem['problem_type'] = enhanced.get('problem_type', 'classification')
+                            problem['target_variable'] = enhanced.get('target_variable', 'target')
+                            problem['input_features'] = enhanced.get('input_features', ['feature1', 'feature2', 'feature3'])
+                            problem['intended_use'] = enhanced.get('intended_use', 'business decision support')
+                            problem['data_source'] = enhanced.get('data_source', 'historical data')
+                            problem['evaluation_metric'] = enhanced.get('evaluation_metric', 'accuracy' if enhanced.get('problem_type') == 'classification' else 'rmse')
                             
-                            # Update full_text with enhanced problem statement
-                            enhanced_statement = f"Predict {canonical.get('target_variable', 'target')} using {', '.join(canonical.get('input_features', [])[:3])}"
+                            # Update full_text with enhanced problem
+                            enhanced_statement = enhanced_result.get('enhanced_statement', problem_statement)
                             problem['full_text'] = enhanced_statement
                             problem['description'] = enhanced_statement
                             
-                            logger.info(f"[ENHANCED] Problem Type: {canonical.get('problem_type')}")
-                            logger.info(f"  Target: {canonical.get('target_variable')}")
-                            logger.info(f"  Features: {', '.join(canonical.get('input_features', [])[:5])}")
-                            logger.info(f"  Enhanced Statement: {enhanced_statement}")
+                            logger.info(f"[ENHANCED] Problem enhanced successfully")
+                            logger.info(f"  Enhanced Statement: {enhanced_statement[:200]}...")
                         else:
-                            # If canonicalization failed, enhance the problem statement
-                            logger.warning(f"Initial canonicalization incomplete: {canonical_result.get('reasoning', 'Unknown')}")
-                            logger.info("Enhancing problem statement to make it complete...")
-                            
-                            # Use Gemini to enhance the problem
-                            enhanced_result = gemini_client.enhance_problem_statement(problem_statement)
-                            
-                            if enhanced_result.get('enhanced_problem'):
-                                enhanced = enhanced_result['enhanced_problem']
-                                problem['canonical_problem'] = enhanced
-                                problem['problem_type'] = enhanced.get('problem_type', 'classification')
-                                problem['target_variable'] = enhanced.get('target_variable', 'target')
-                                problem['input_features'] = enhanced.get('input_features', ['feature1', 'feature2', 'feature3'])
-                                problem['intended_use'] = enhanced.get('intended_use', 'business decision support')
-                                problem['data_source'] = enhanced.get('data_source', 'historical data')
-                                problem['evaluation_metric'] = enhanced.get('evaluation_metric', 'accuracy' if enhanced.get('problem_type') == 'classification' else 'rmse')
-                                
-                                # Update full_text with enhanced problem
-                                enhanced_statement = enhanced_result.get('enhanced_statement', problem_statement)
-                                problem['full_text'] = enhanced_statement
-                                problem['description'] = enhanced_statement
-                                
-                                logger.info(f"[ENHANCED] Problem enhanced successfully")
-                                logger.info(f"  Enhanced Statement: {enhanced_statement[:200]}...")
-                            else:
-                                logger.warning("Gemini enhancement failed, using inferred defaults")
-                                # Use safe defaults
-                                problem['problem_type'] = 'classification'
-                                problem['target_variable'] = 'target'
-                                problem['input_features'] = ['feature1', 'feature2', 'feature3']
-                    else:
-                        logger.warning("Gemini API key not found. Skipping enhancement.")
+                            logger.warning("LLM enhancement failed, using inferred defaults")
+                            # Use safe defaults
+                            problem['problem_type'] = 'classification'
+                            problem['target_variable'] = 'target'
+                            problem['input_features'] = ['feature1', 'feature2', 'feature3']
                 except Exception as e:
-                    logger.warning(f"Gemini enhancement failed: {e}. Using original problem with defaults.")
+                    logger.warning(f"LLM enhancement failed: {e}. Using original problem with defaults.")
                     # Use safe defaults
                     problem['problem_type'] = 'classification'
                     problem['target_variable'] = 'target'
                     problem['input_features'] = ['feature1', 'feature2', 'feature3']
             else:
-                logger.warning("Gemini not enabled. Using original problem with inferred defaults.")
+                logger.warning("Ollama not enabled. Using original problem with inferred defaults.")
                 # Infer from problem statement
                 if 'churn' in problem_statement.lower():
                     problem['problem_type'] = 'classification'
@@ -1001,10 +1062,19 @@ class Orchestrator:
             
             # Stage 3: Dataset Discovery
             logger.info("\n[Stage 3] Dataset Discovery")
+            # Build keywords for discovery: include target, features, and problem statement words
+            discovery_keywords = list(key_features) if key_features else []
+            if problem.get('target_variable'):
+                discovery_keywords.append(problem['target_variable'])
+            if problem.get('title'):
+                discovery_keywords.extend(re.findall(r'\b\w{3,}\b', problem['title'].lower()))
+            if problem.get('description'):
+                discovery_keywords.extend(re.findall(r'\b\w{3,}\b', problem['description'][:300].lower()))
+            discovery_keywords = list(dict.fromkeys(discovery_keywords))[:15]  # Unique, limit
             datasets = self.dataset_discovery.discover_datasets(
-                problem, 
-                task_type, 
-                key_features
+                problem,
+                task_type,
+                discovery_keywords
             )
             pipeline_results['stages']['dataset_discovery'] = {
                 'success': True,
@@ -1024,17 +1094,27 @@ class Orchestrator:
                 }
                 
                 if matches:
-                    # Select best match
-                    best_dataset = self.dataset_matcher.select_best_match(matches)
+                    # Sort matches: prefer UCI/HuggingFace (no auth) over Kaggle to avoid 403
+                    source_priority = {'uci': 0, 'huggingface': 1, 'datagov': 2, 'worldbank': 3, 'kaggle': 4}
+                    sorted_matches = sorted(
+                        matches,
+                        key=lambda x: (source_priority.get(x[0].get('source', ''), 5), -x[1])
+                    )
                     
-                    if best_dataset:
-                        logger.info(f"Selected dataset: {best_dataset.get('id', 'Unknown')}")
-                        
-                        # Stage 5: Dataset Download
-                        logger.info("\n[Stage 5] Dataset Download")
-                        dataset_path = self._download_dataset(best_dataset, task_type)
+                    # Stage 5: Dataset Download - try each match until one succeeds (prefer UCI/HF)
+                    logger.info("\n[Stage 5] Dataset Download")
+                    best_dataset = None
+                    dataset_path = None
+                    for ds, sim in sorted_matches:
+                        logger.info(f"Trying dataset: {ds.get('id', 'Unknown')} (source: {ds.get('source', '?')}, similarity: {sim:.3f})")
+                        path = self._download_dataset(ds, task_type)
+                        if path:
+                            best_dataset = ds
+                            dataset_path = path
+                            logger.info(f"Successfully downloaded: {dataset_path}")
+                            break
                     else:
-                        logger.warning("Could not select best dataset. Will create synthetic dataset.")
+                        logger.warning("All dataset download attempts failed. Will create synthetic dataset.")
                 else:
                     logger.warning("No matching datasets found. Will create synthetic dataset.")
             else:

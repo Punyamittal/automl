@@ -29,13 +29,13 @@ if __name__ == "__main__":
     # Initialize orchestrator
     orchestrator = Orchestrator()
     
-    # Check if Gemini is enabled
-    gemini_config = orchestrator.config.get('gemini', {})
-    if gemini_config.get('enabled', False):
+    # Check LLM config (Ollama)
+    ollama_config = orchestrator.config.get('ollama', {})
+    if ollama_config.get('enabled', False):
         print("=" * 80)
-        print("Gemini API: ENABLED")
-        print(f"  Model: {gemini_config.get('model_name', 'gemini-pro')}")
-        print(f"  Min Confidence: {gemini_config.get('min_confidence', 0.6)}")
+        print("Ollama (Local): ENABLED")
+        print(f"  URL: {ollama_config.get('base_url', 'http://localhost:11434')}")
+        print(f"  Model: {ollama_config.get('model_name', 'llama3.2')}")
         print("=" * 80)
         print()
     

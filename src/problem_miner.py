@@ -29,13 +29,11 @@ except ImportError:
     GITHUB_MINER_AVAILABLE = False
     logger.warning("GitHub problem miner not available.")
 
-# Try to import Gemini client
 try:
-    from .gemini_client import GeminiClient
-    GEMINI_AVAILABLE = True
+    from .ollama_client import OllamaClient
+    OLLAMA_AVAILABLE = True
 except ImportError:
-    GEMINI_AVAILABLE = False
-    logger.warning("Gemini client not available.")
+    OLLAMA_AVAILABLE = False
 
 
 class ProblemMiner:
@@ -70,17 +68,18 @@ class ProblemMiner:
             except Exception as e:
                 logger.warning(f"Failed to initialize GitHub miner: {e}")
         
-        # Initialize Gemini client if available and configured
-        self.gemini_client = None
-        gemini_config = config.get('gemini', {})
-        if gemini_config.get('enabled', False) and GEMINI_AVAILABLE:
+        # Initialize LLM client (Ollama) for problem analysis
+        self.llm_client = None
+        ollama_config = config.get('ollama', {})
+        if ollama_config.get('enabled', False) and OLLAMA_AVAILABLE:
             try:
-                api_key = gemini_config.get('api_key') or config.get('llm', {}).get('gemini_api_key')
-                model_name = gemini_config.get('model_name', 'gemini-pro')
-                self.gemini_client = GeminiClient(api_key=api_key, model_name=model_name)
-                logger.info("Gemini client initialized for problem analysis")
+                self.llm_client = OllamaClient(
+                    base_url=ollama_config.get('base_url', 'http://localhost:11434'),
+                    model_name=ollama_config.get('model_name', 'llama3.2')
+                )
+                logger.info("Ollama client initialized for problem analysis")
             except Exception as e:
-                logger.warning(f"Failed to initialize Gemini client: {e}. Continuing without Gemini analysis.")
+                logger.warning(f"Failed to initialize Ollama client: {e}. Continuing without LLM analysis.")
         
     def mine_problems(self) -> List[Dict]:
         """Mine problems from Kaggle (primary) and GitHub (secondary)."""
@@ -98,36 +97,36 @@ class ProblemMiner:
             github_problems = self.github_miner.mine_problems()
             all_problems.extend(github_problems)
         
-        # Analyze problems with Gemini if enabled
-        if self.gemini_client and all_problems:
-            logger.info("Analyzing problems with Gemini...")
+        # Analyze problems with LLM (Ollama) if enabled
+        if self.llm_client and all_problems:
+            logger.info("Analyzing problems with LLM...")
             analyzed_problems = []
             for problem in all_problems:
                 try:
                     title = problem.get('title', '')
                     description = problem.get('description', '')
                     
-                    gemini_analysis = self.gemini_client.analyze_reddit_post(title, description)
+                    llm_analysis = self.llm_client.analyze_reddit_post(title, description)
                     
-                    # Only include if Gemini approves
-                    if gemini_analysis.get('is_ml_problem', False):
-                        confidence = gemini_analysis.get('confidence', 0.0)
+                    # Only include if LLM approves
+                    if llm_analysis.get('is_ml_problem', False):
+                        confidence = llm_analysis.get('confidence', 0.0)
                         if confidence >= 0.6:  # Require at least 60% confidence
                             # Use structured ML problem details if available
-                            ml_problem_details = gemini_analysis.get('ml_problem_details')
+                            ml_problem_details = llm_analysis.get('ml_problem_details')
                             if ml_problem_details:
                                 problem['ml_problem_details'] = ml_problem_details
-                                # Update title and description with Gemini-generated content
+                                # Update title and description with LLM-generated content
                                 if ml_problem_details.get('title'):
                                     problem['title'] = ml_problem_details['title']
                                 if ml_problem_details.get('problem_statement'):
                                     problem['description'] = ml_problem_details['problem_statement']
                             
-                            problem['gemini_analysis'] = gemini_analysis
+                            problem['llm_analysis'] = llm_analysis
                             analyzed_problems.append(problem)
                 except Exception as e:
-                    logger.warning(f"Gemini analysis failed for problem: {e}")
-                    # Include problem even if Gemini fails
+                    logger.warning(f"LLM analysis failed for problem: {e}")
+                    # Include problem even if LLM fails
                     analyzed_problems.append(problem)
             
             all_problems = analyzed_problems

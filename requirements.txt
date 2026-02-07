@@ -14,9 +14,6 @@ xgboost>=2.0.0  # Optional: Advanced gradient boosting
 lightgbm>=4.0.0  # Optional: LightGBM for better accuracy
 imbalanced-learn>=0.11.0  # Optional: For handling imbalanced datasets (SMOTE)
 
-# Updated Gemini API
-google-genai>=0.3.0
-
 # Vector search
 faiss-cpu>=1.7.4
 
@@ -24,11 +21,11 @@ faiss-cpu>=1.7.4
 transformers>=4.30.0
 huggingface-hub>=0.16.0
 sentence-transformers>=2.2.0
-google-generativeai>=0.3.0  # Gemini API
 
 # Dataset sources
 kaggle>=1.5.12
 datasets>=2.14.0
+ucimlrepo>=0.0.7
 
 # GitHub operations
 PyGithub>=1.59.0
