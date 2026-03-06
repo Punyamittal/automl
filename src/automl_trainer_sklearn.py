@@ -65,6 +65,16 @@ class AutoMLTrainer:
         self.max_dataset_rows = config.get('max_dataset_rows', 50000)  # Limit dataset size
         self.max_training_samples = config.get('max_training_samples', 50000)  # Limit training samples after SMOTE
         
+        # Preprocessing state
+        self.scaler = None
+        self.label_encoder = None
+        self.feature_selector = None
+        self.training_feature_names = None
+        self.top_categories_map = {}
+        self.categorical_cols = []
+        self.use_label_encoding = False
+        self.label_encoders = {}
+        
         self.models_dir = Path("outputs/models")
         self.models_dir.mkdir(parents=True, exist_ok=True)
         
@@ -267,22 +277,31 @@ class AutoMLTrainer:
         
         for col in categorical_cols:
             unique_count = X[col].nunique()
+            unique_count = X[col].nunique()
             if unique_count > max_categories_per_col:
                 logger.warning(f"Column {col} has {unique_count} unique values. Using top {max_categories_per_col} categories.")
-                top_categories = X[col].value_counts().head(max_categories_per_col).index
+                top_categories = X[col].value_counts().head(max_categories_per_col).index.tolist()
+                self.top_categories_map[col] = top_categories
                 X[col] = X[col].where(X[col].isin(top_categories), 'other')
         
         # Handle categorical features
+        self.categorical_cols = categorical_cols
         if len(X) > 10000:
+            self.use_label_encoding = True
             X_encoded = X.copy()
-            label_encoders = {}
+            self.label_encoders = {}
             for col in categorical_cols:
                 le = LabelEncoder()
                 X_encoded[col] = le.fit_transform(X[col].astype(str))
-                label_encoders[col] = le
+                self.label_encoders[col] = le
+            label_encoders = self.label_encoders
         else:
+            self.use_label_encoding = False
             X_encoded = pd.get_dummies(X, drop_first=True)
             label_encoders = None
+        
+        # Save training feature names
+        self.training_feature_names = list(X_encoded.columns)
         
         # Handle missing values - use median for numeric, mode for categorical
         numeric_cols = X_encoded.select_dtypes(include=[np.number]).columns
@@ -314,6 +333,10 @@ class AutoMLTrainer:
             X_train_selected = selector.fit_transform(X_train, y_train)
             X_test_selected = selector.transform(X_test)
             self.feature_selector = selector
+            # Update feature names after selection
+            if self.training_feature_names:
+                mask = selector.get_support()
+                self.training_feature_names = [name for name, m in zip(self.training_feature_names, mask) if m]
         else:
             X_train_selected = X_train
             X_test_selected = X_test
@@ -344,7 +367,8 @@ class AutoMLTrainer:
                     # Limit training samples if too large (for faster training)
                     if len(X_train_scaled) > self.max_training_samples:
                         logger.info(f"Sampling {self.max_training_samples} samples from {len(X_train_scaled)} for faster training")
-                        indices = np.random.choice(len(X_train_scaled), size=self.max_training_samples, replace=False, random_state=self.random_state)
+                        rng = np.random.default_rng(self.random_state)
+                        indices = rng.choice(len(X_train_scaled), size=self.max_training_samples, replace=False)
                         X_train_scaled = X_train_scaled[indices]
                         y_train = y_train[indices]
                         logger.info(f"Reduced to {len(X_train_scaled)} training samples")
@@ -450,11 +474,14 @@ class AutoMLTrainer:
                         if n_samples > 10000:
                             logger.info(f"Skipping {model_name} for large dataset ({n_samples} samples)")
                             continue
-                        model = model_class(max_iter=1000)
+                        model = model_class(max_iter=1000, random_state=self.random_state) if model_code != 'knn' else model_class()
                     elif model_code == 'knn':
                         # KNN doesn't accept random_state parameter
                         n_neighbors = min(10, max(3, int(np.sqrt(len(X_train)))))
                         model = model_class(n_neighbors=n_neighbors)
+                    elif model_code == 'lr' and model_class.__name__ == 'LinearRegression':
+                         # LinearRegression doesn't take random_state
+                         model = model_class()
                     else:
                         # Default parameters for other models
                         model = model_class(random_state=self.random_state)
@@ -599,7 +626,9 @@ class AutoMLTrainer:
                     'scaler': self.scaler,
                     'label_encoder': self.label_encoder,
                     'feature_selector': self.feature_selector,
-                    'model_name': best_model_name
+                    'model_name': best_model_name,
+                    'feature_names': self.training_feature_names,
+                    'top_categories_map': self.top_categories_map
                 }, f)
             
             logger.info(f"💾 Model saved to: {model_path}")
@@ -662,7 +691,10 @@ class AutoMLTrainer:
                 
                 try:
                     logger.info(f"Training {model_name}...")
-                    model = model_class(random_state=self.random_state)
+                    if model_code in ['lr', 'knn']:
+                        model = model_class()
+                    else:
+                        model = model_class(random_state=self.random_state)
                     model.fit(X_train, y_train)
                     
                     # Evaluate
@@ -709,7 +741,8 @@ class AutoMLTrainer:
                 pickle.dump({
                     'model': best_model,
                     'scaler': self.scaler,
-                    'model_name': best_model_name
+                    'model_name': best_model_name,
+                    'feature_names': list(X_train.columns) if hasattr(X_train, 'columns') else None
                 }, f)
             
             # Save metrics

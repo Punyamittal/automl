@@ -55,7 +55,9 @@ class Orchestrator:
         problem_miner_config['github'] = self.config.get('github', {})  # Pass GitHub config for token
         self.problem_miner = ProblemMiner(problem_miner_config)
         self.ml_decision_agent = MLDecisionAgent(self.config.get('ml_decision_agent', {}))
-        self.feasibility_classifier = FeasibilityClassifier(self.config.get('feasibility', {}))
+        feasibility_config = self.config.get('feasibility', {}).copy()
+        feasibility_config.update(self.config.get('llm', {}))
+        self.feasibility_classifier = FeasibilityClassifier(feasibility_config)
         self.dataset_discovery = DatasetDiscovery(self.config.get('dataset_discovery', {}))
         self.dataset_matcher = DatasetMatcher(self.config.get('dataset_matching', {}))
         self.problem_registry = ProblemRegistry(self.config.get('problem_registry', {}))
@@ -310,6 +312,8 @@ class Orchestrator:
                 model = model_data.get('model')
                 scaler = model_data.get('scaler')
                 label_encoder = model_data.get('label_encoder')
+                feature_selector = model_data.get('feature_selector')
+                training_feature_names = model_data.get('feature_names')
             
             # Get target column from training result
             target = training_result.get('metrics', {}).get('target', 'target')
@@ -338,23 +342,47 @@ class Orchestrator:
             X = df.drop(columns=[target])
             y = df[target]
             
-            # Handle categorical features
-            X = pd.get_dummies(X, drop_first=True)
+            # Handle categorical features - use same logic as training
+            top_categories_map = model_data.get('top_categories_map', {})
+            for col, top_cats in top_categories_map.items():
+                if col in X.columns:
+                    X[col] = X[col].where(X[col].isin(top_cats), 'other')
             
-            # Encode target if needed
-            if task_type == 'classification' and label_encoder:
-                y = label_encoder.transform(y)
-            elif task_type == 'classification' and y.dtype == 'object':
-                from sklearn.preprocessing import LabelEncoder
-                le = LabelEncoder()
-                y = le.fit_transform(y)
+            X_encoded = pd.get_dummies(X, drop_first=True)
+            
+            # Align features with training columns
+            if training_feature_names:
+                # Add missing columns with 0
+                for col in training_feature_names:
+                    if col not in X_encoded.columns:
+                        X_encoded[col] = 0
+                
+                # Keep only training columns in the same order
+                X_encoded = X_encoded[training_feature_names]
             
             # Split data (use same random state as training)
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=self.config.get('automl', {}).get('random_state', 42)
+                X_encoded, y, test_size=0.2, random_state=self.config.get('automl', {}).get('random_state', 42)
             )
             
+            # Encode target if needed
+            if task_type == 'classification' and label_encoder:
+                try:
+                    y_test = label_encoder.transform(y_test)
+                except:
+                    # Fallback if label encoder doesn't match
+                    from sklearn.preprocessing import LabelEncoder
+                    le = LabelEncoder()
+                    y_test = le.fit_transform(y_test)
+            elif task_type == 'classification' and y_test.dtype == 'object':
+                from sklearn.preprocessing import LabelEncoder
+                le = LabelEncoder()
+                y_test = le.fit_transform(y_test)
+            
             # Scale features if scaler was used
+            if feature_selector:
+                X_test = feature_selector.transform(X_test)
+                
             if scaler:
                 X_test = scaler.transform(X_test)
             

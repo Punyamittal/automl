@@ -21,8 +21,9 @@ class FeasibilityClassifier:
     def __init__(self, config: Dict):
         self.config = config
         self.provider = config.get('provider', 'huggingface')
-        self.model_name = config.get('model_name', 'mistralai/Mistral-7B-Instruct-v0.1')
+        self.model_name = config.get('model_name', 'mistralai/Mistral-7B-Instruct-v0.3')
         self.api_url = config.get('api_url', 'https://api-inference.huggingface.co/models')
+        self.local_url = config.get('local_url', 'http://localhost:11434/api/generate')
         self.token = config.get('token', '')
         self.max_retries = config.get('max_retries', 3)
         self.timeout = config.get('timeout', 60)
@@ -293,8 +294,34 @@ Respond ONLY with valid JSON in this exact format:
         """Call LLM API."""
         if self.provider == 'huggingface':
             return self._call_huggingface(prompt)
+        elif self.provider == 'local':
+            return self._call_local(prompt)
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
+    
+    def _call_local(self, prompt: str) -> str:
+        """Call local LLM (Ollama)."""
+        payload = {
+            'model': self.config.get('local_model', 'llama3.2'),
+            'prompt': prompt,
+            'stream': False,
+            'options': {
+                'temperature': 0.3,
+                'num_predict': 500
+            }
+        }
+        
+        try:
+            response = requests.post(
+                self.local_url,
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json().get('response', '')
+        except Exception as e:
+            logger.error(f"Error calling local LLM: {e}")
+            raise
     
     def _call_huggingface(self, prompt: str) -> str:
         """Call HuggingFace Inference API."""
