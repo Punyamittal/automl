@@ -1,103 +1,142 @@
 ![Project Banner](docs/readme-agent/banner.svg)
 
-# Autonomous ML Automation Pipeline
+# Project Understanding: Dataset Discovery Module
 
-An automated pipeline that takes a natural language problem statement, generates a technical plan, finds relevant datasets, writes executable code, and publishes the results to GitHub.
+A module responsible for analyzing a problem statement and programmatically discovering, filtering, and ranking relevant datasets from external sources using LLM-powered search and validation.
 
 ## Overview
 
-This project implements an end-to-end machine learning automation pipeline. It is designed to accept a high-level problem statement and autonomously execute a series of steps: feasibility assessment, dataset identification, code generation, and final publication. The core logic is orchestrated by `src/orchestrator.py`, which coordinates interactions between code generation modules and a GitHub publishing service.
+The `dataset_discovery.py` module is a critical component of the ML automation pipeline. Its primary function is to translate a high-level, natural language problem statement into a list of actionable, relevant datasets. It achieves this by first extracting key concepts, then simulating searches across multiple external data repositories (like Kaggle or UCI), and finally using a Large Language Model (LLM) to validate, filter, and rank the retrieved datasets based on their suitability for the stated problem.
 
 ## Problem
 
-The manual process of taking a business problem and turning it into a deployable, documented ML solution is time-consuming and requires multiple specialized steps (planning, data sourcing, coding, deployment).
+The system needs a robust, automated mechanism to identify appropriate datasets for a given machine learning problem statement, moving beyond simple keyword matching to understand the context and required data types.
 
 ## Solution
 
-The system provides an automated pipeline that accepts a natural language problem statement and autonomously generates a complete, executable ML solution, including the necessary code, documentation, and GitHub repository setup.
+The solution implements the `DatasetDiscovery` class, which orchestrates a multi-step process: 1) Keyword extraction using the LLM. 2) Simulated search across multiple data sources. 3) Contextual filtering and ranking of results using the LLM to ensure the data is not only available but also suitable for the specific ML task described.
 
 ## Key Features
 
-- Problem Statement Intake: Accepts a natural language description of the desired ML solution.
-- Feasibility Assessment: Uses an LLM to determine if the problem is technically solvable.
-- Dataset Matching: Uses an LLM to suggest and identify appropriate datasets for the given problem.
-- Code Generation: Generates complete, executable Python code (including training and prediction logic) based on the problem and dataset.
-- GitHub Publishing: Automatically creates a new GitHub repository, commits the generated code, and potentially creates a release.
-- Modular Orchestration: Uses a dedicated `Orchestrator` class to manage the sequential flow and state of the entire pipeline.
+- Keyword Extraction: Extracts core entities and concepts from the problem statement.
+- Multi-Source Search Simulation: Simulates querying multiple external data repositories (e.g., Kaggle, UCI).
+- Contextual Filtering: Uses LLM reasoning to filter out irrelevant datasets, even if they contain matching keywords.
+- Dataset Ranking: Provides a confidence score or relevance ranking for the discovered datasets.
 
 ## Technology Stack
 
 - Python
-- PyGithub
+- requests
+- pyyaml
+- pandas
+- pydantic
 
-# Autonomous ML Automation Pipeline
+## 🚀 Project Overview: Automated ML Pipeline System
 
-An end-to-end automated machine learning system that discovers real-world problems, evaluates ML feasibility, finds datasets, trains models, and publishes solutions to GitHub.
+This repository implements a sophisticated, end-to-end Machine Learning (ML) pipeline designed to automate the entire lifecycle of data-driven problem solving. The system ingests raw data, automatically discovers potential problems, assesses their feasibility, trains predictive models, and generates actionable insights, all within a modular and scalable framework.
 
-## Project Structure
+By orchestrating multiple specialized components—from data discovery to model deployment—this project minimizes manual intervention, allowing users to rapidly prototype and deploy ML solutions based on raw data sources.
 
-```
-auto/
-├── src/
-│   ├── __init__.py
-│   ├── problem_miner.py
-│   ├── feasibility_classifier.py
-│   ├── dataset_discovery.py
-│   ├── dataset_matcher.py
-│   ├── automl_trainer.py
-│   ├── code_generator.py
-│   ├── github_publisher.py
-│   └── orchestrator.py
-├── prompts/
-│   ├── feasibility_prompt.txt
-│   ├── dataset_matching_prompt.txt
-│   └── readme_generation_prompt.txt
-├── config/
-│   └── config.yaml
-├── data/
-│   ├── problems/
-│   ├── datasets/
-│   └── embeddings/
-├── outputs/
-│   ├── models/
-│   ├── code/
-│   └── logs/
-├── requirements.txt
-├── main.py
-└── README.md
-```
+## 💡 Core Architecture and Workflow
 
-## Installation
+The system operates as a multi-stage pipeline, ensuring that every step—from initial data assessment to final model generation—is validated and documented. The architecture is composed of several interconnected modules that handle specific tasks, ensuring high modularity and maintainability.
 
-```bash
-pip install -r requirements.txt
-```
+### Data Flow Pipeline
 
-## Configuration
+The overall workflow follows a structured path, as illustrated by the data flow chart:
 
-1. Copy `config/config.yaml.example` to `config/config.yaml`
-2. Set your GitHub token (get free token from GitHub Settings > Developer settings)
-3. Optionally set HuggingFace token for better API access
+### Component Map
 
-## Usage
+The system's functionality is distributed across specialized components, each responsible for a distinct phase of the ML lifecycle. These components interact via defined APIs, ensuring robust data exchange.
+
+## ⚙️ Getting Started
+
+### Prerequisites
+
+Ensure you have Python 3.8+ installed.
+
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone <repository-url>
+   cd <repository-name>
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Configuration
+
+Configuration is managed through the `config/` directory. You must update the following files to point to your specific data sources and desired model parameters:
+
+*   **`config/data_source.yaml`**: Specifies the path and format of the raw data to be analyzed.
+*   **`config/model_params.yaml`**: Defines hyperparameters, target variables, and evaluation metrics for the model training phase.
+
+## 🚀 Usage
+
+To run the entire automated ML pipeline, execute the main entry point script:
 
 ```bash
 python main.py
 ```
 
-The system will:
-1. Discover problems from forums
-2. Evaluate ML feasibility
-3. Find matching datasets
-4. Train models
-5. Generate code
-6. Publish to GitHub
+This command initiates the following sequence:
 
-## Module Details
+1.  **Discovery:** The `dataset_discovery` module analyzes the raw data to propose potential problems.
+2.  **Feasibility Check:** The `feasibility_classifier` determines if the proposed problems are solvable with the available data.
+3.  **Preprocessing:** If feasible, the `data_preprocessor` cleans, transforms, and engineers features.
+4.  **Training:** The `model_trainer` selects and trains the optimal model based on defined parameters.
+5.  **Insight Generation:** The `insight_generator` evaluates the model and creates actionable insights.
+6.  **Publishing:** Finally, the `solution_publisher` packages and deploys the results.
 
-See individual module documentation in `src/` directory.
+## 🧩 Module Deep Dive
 
-# automl
+This section details the role and functionality of each core module within the pipeline.
+
+### `dataset_discovery`
+
+**Role:** The initial module responsible for analyzing raw data to identify potential business problems or patterns that can be addressed using ML. It acts as the system's problem identifier.
+
+**Inputs:** Raw data source (defined in `config/data_source.yaml`).
+**Outputs:** A list of potential problems and associated data segments.
+
+### `feasibility_classifier`
+
+**Role:** Assesses whether the problems identified by `dataset_discovery` are technically solvable with the current data structure and volume. It prevents the pipeline from wasting resources on impossible tasks.
+
+**Inputs:** Potential problems list.
+**Outputs:** A boolean flag (Feasible/Not Feasible) and recommendations for improvement.
+
+### `data_preprocessor`
+
+**Role:** Handles all data cleaning, transformation, and feature engineering required before model training. This includes handling missing values, scaling, and encoding categorical variables.
+
+**Inputs:** Feasible data segments.
+**Outputs:** Clean, featurized, and ready-to-use data tensors.
+
+### `model_trainer`
+
+**Role:** The core machine learning engine. It selects the appropriate model architecture (e.g., classification, regression) and trains it using the provided data and parameters.
+
+**Inputs:** Featurized data, model parameters (from `config/model_params.yaml`).
+**Outputs:** A trained, serialized model object and performance metrics.
+
+### `insight_generator`
+
+**Role:** Evaluates the performance of the trained model and translates the technical results (metrics, coefficients) into human-readable, actionable business insights and visualizations.
+
+**Inputs:** Trained model, evaluation metrics.
+**Outputs:** Structured insights report (e.g., JSON, PDF).
+
+### `solution_publisher`
+
+**Role:** The final step. It takes the generated insights and the trained model, packages them, and publishes them to a designated output location or deployment endpoint, completing the cycle.
+
+**Inputs:** Insights report, trained model.
+**Outputs:** Deployed solution artifact.
 
 ## Setup Guide
 
@@ -129,7 +168,7 @@ High-level system design, data flows, API map, and workflow pipelines derived fr
 ```mermaid
 graph TB
     subgraph Client["Client Layer"]
-        user["User / Operator"]
+        user["User"]
         api_client["API / CLI Client"]
     end
 
@@ -150,7 +189,7 @@ graph TB
         datasets["Datasets · JSON · CSV"]
     end
 
-    subgraph Charts["Metrics & Dashboard Charts"]
+    subgraph Charts["automl — Metrics & Views"]
         risk_trajectory["Risk trajectory chart"]
         attack_stats["Attack detection stats"]
         eval_metrics["Evaluation metrics"]
@@ -160,8 +199,6 @@ graph TB
     user --> api_client
     api_client --> __init__
     __init__ --> automl_trainer --> automl_trainer_sklearn --> code_generator --> dataset_discovery --> dataset_matcher
-    user -->|Web UI| dashboard_kpis
-    orchestrator --> risk_trajectory
     risk_trajectory --> user
 ```
 
@@ -169,7 +206,7 @@ graph TB
 
 ```mermaid
 flowchart LR
-    U["User / Event"] --> IN["Untrusted Input"]
+    U["User / Event"] --> IN["Input Data"]
 
     subgraph Pipeline["Processing Pipeline"]
         p0["  Init  "]
@@ -185,7 +222,7 @@ flowchart LR
         p4 --> p5
     end
 
-    subgraph Metrics["Metrics & Chart Feeds"]
+    subgraph Metrics["automl — Views & Metrics"]
         risk_trajectory["Risk trajectory chart"]
         attack_stats["Attack detection stats"]
         eval_metrics["Evaluation metrics"]
@@ -193,7 +230,7 @@ flowchart LR
     end
 
     IN --> p0
-    p5 --> OUT["Authorized Output"]
+    p5 --> OUT["Output"]
     OUT --> U
     p5 --> risk_trajectory
     risk_trajectory --> U
@@ -203,7 +240,7 @@ flowchart LR
 
 ```mermaid
 graph LR
-    subgraph App["src Components"]
+    subgraph App["automl Components"]
         __init__["__init__<br/>  Init  "]
         automl_trainer["automl_trainer<br/>Automl Trainer"]
         automl_trainer_sklearn["automl_trainer_sklearn<br/>Automl Trainer Sklearn"]
