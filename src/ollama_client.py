@@ -8,8 +8,9 @@ and determining if they are actual ML problems. No API key needed.
 import logging
 import json
 import re
+import time
 import requests
-from typing import Dict, Optional
+from typing import Dict, Optional, Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -17,17 +18,28 @@ logger = logging.getLogger(__name__)
 class OllamaClient:
     """Client for local Ollama API - used for problem analysis and enhancement."""
 
-    def __init__(self, base_url: str = "http://localhost:11434", model_name: str = "llama3.2"):
+    def __init__(
+        self,
+        base_url: str = "http://localhost:11434",
+        model_name: str = "llama3.2",
+        usage_callback: Optional[Callable[..., Any]] = None,
+    ):
         """
         Initialize Ollama client.
 
         Args:
             base_url: Ollama API base URL (default: http://localhost:11434)
             model_name: Model to use (default: llama3.2). Run `ollama list` to see available models.
+            usage_callback: Optional callable for eval instrumentation (no secrets/prompts required).
         """
         self.base_url = base_url.rstrip("/")
         self.model_name = model_name
+        self.usage_callback = usage_callback
+        self._last_purpose_stage = "PROBLEM_FORMULATION"
         logger.info(f"Ollama client initialized: {self.base_url}, model={self.model_name}")
+
+    def set_purpose_stage(self, stage: str) -> None:
+        self._last_purpose_stage = stage
 
     def _generate(self, prompt: str, temperature: float = 0.2) -> str:
         """Call Ollama generate API."""
@@ -41,20 +53,56 @@ class OllamaClient:
                 "num_predict": 2000,
             },
         }
+        start = time.perf_counter()
+        success = False
+        error_message = None
+        # Ollama may return eval/prompt token counts in some versions; treat as measured only if present
+        input_tokens = None
+        output_tokens = None
+        total_tokens = None
         try:
             resp = requests.post(url, json=payload, timeout=120)
             resp.raise_for_status()
             data = resp.json()
+            # Prefer explicit token fields when Ollama provides them; otherwise unavailable
+            if "prompt_eval_count" in data:
+                input_tokens = int(data["prompt_eval_count"])
+            if "eval_count" in data:
+                output_tokens = int(data["eval_count"])
+            if input_tokens is not None or output_tokens is not None:
+                total_tokens = (input_tokens or 0) + (output_tokens or 0)
+            success = True
             return (data.get("response") or "").strip()
         except requests.exceptions.ConnectionError:
+            error_message = f"Cannot connect to Ollama at {self.base_url}"
             raise ConnectionError(
                 f"Cannot connect to Ollama at {self.base_url}. "
                 "Ensure Ollama is running: ollama serve"
             )
         except requests.exceptions.Timeout:
+            error_message = "Ollama request timed out"
             raise TimeoutError("Ollama request timed out")
         except Exception as e:
+            error_message = str(e)
             raise RuntimeError(f"Ollama API call failed: {e}")
+        finally:
+            latency = time.perf_counter() - start
+            if self.usage_callback is not None:
+                try:
+                    self.usage_callback(
+                        provider="ollama",
+                        model=self.model_name,
+                        purpose_stage=self._last_purpose_stage,
+                        latency_seconds=latency,
+                        success=success,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        total_tokens=total_tokens,
+                        estimated_cost_usd=0.0 if success else None,  # local; monetary cost not applicable
+                        error_message=error_message,
+                    )
+                except Exception as cb_err:
+                    logger.warning(f"LLM usage callback failed: {cb_err}")
 
     def enhance_problem_statement(self, problem_statement: str) -> Dict:
         """Enhance an incomplete or vague problem statement into a well-formed ML problem."""

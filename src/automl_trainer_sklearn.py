@@ -5,6 +5,7 @@ Automatically trains machine learning models using scikit-learn.
 This version works with Python 3.12+ (unlike PyCaret).
 """
 
+import os
 import pandas as pd
 import numpy as np
 import logging
@@ -49,6 +50,17 @@ except ImportError:
     SMOTE_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+
+def _parallel_jobs() -> int:
+    """Prefer AUTOML_N_JOBS; default to 1 on Windows to avoid loky worker crashes."""
+    env = os.environ.get("AUTOML_N_JOBS")
+    if env is not None:
+        try:
+            return int(env)
+        except ValueError:
+            return 1
+    return 1 if os.name == "nt" else -1
 
 
 class AutoMLTrainer:
@@ -163,7 +175,25 @@ class AutoMLTrainer:
             }
         
         logger.info(f"Training {task_type} model with target: {target_column}")
-        
+
+        # Auto-correct task type from target dtype (LLM often mislabels class/regression)
+        y_probe = df[target_column]
+        y_num = pd.to_numeric(y_probe, errors="coerce")
+        numeric_ratio = float(y_num.notna().mean()) if len(y_probe) else 0.0
+        nunique = int(y_probe.nunique(dropna=True))
+        if task_type == "regression" and (numeric_ratio < 0.8 or nunique <= 20):
+            logger.warning(
+                f"Target '{target_column}' looks categorical "
+                f"(numeric_ratio={numeric_ratio:.2f}, nunique={nunique}); switching to classification"
+            )
+            task_type = "classification"
+        elif task_type == "classification" and numeric_ratio > 0.95 and nunique > 30:
+            logger.warning(
+                f"Target '{target_column}' looks continuous "
+                f"(numeric_ratio={numeric_ratio:.2f}, nunique={nunique}); switching to regression"
+            )
+            task_type = "regression"
+
         # Train based on task type
         if task_type == 'classification':
             result = self._train_classification(df, target_column)
@@ -268,22 +298,30 @@ class AutoMLTrainer:
     def _prepare_data(self, df: pd.DataFrame, target: str, task_type: str):
         """Prepare data for training with advanced feature engineering."""
         # Separate features and target
-        X = df.drop(columns=[target])
-        y = df[target]
-        
+        X = df.drop(columns=[target]).copy()
+        y = df[target].copy()
+
+        # Coerce pandas StringDtype / mixed object columns to plain object for encoding
+        for col in list(X.columns):
+            if pd.api.types.is_string_dtype(X[col]) or X[col].dtype == object:
+                X[col] = X[col].astype(str)
+            elif X[col].dtype == "category":
+                X[col] = X[col].astype(str)
+
         # Memory-efficient categorical encoding
-        categorical_cols = X.select_dtypes(include=['object', 'category']).columns
+        categorical_cols = X.select_dtypes(include=["object", "category", "string"]).columns
         max_categories_per_col = 50
-        
+
         for col in categorical_cols:
             unique_count = X[col].nunique()
-            unique_count = X[col].nunique()
             if unique_count > max_categories_per_col:
-                logger.warning(f"Column {col} has {unique_count} unique values. Using top {max_categories_per_col} categories.")
+                logger.warning(
+                    f"Column {col} has {unique_count} unique values. Using top {max_categories_per_col} categories."
+                )
                 top_categories = X[col].value_counts().head(max_categories_per_col).index.tolist()
                 self.top_categories_map[col] = top_categories
-                X[col] = X[col].where(X[col].isin(top_categories), 'other')
-        
+                X[col] = X[col].where(X[col].isin(top_categories), "other")
+
         # Handle categorical features
         self.categorical_cols = categorical_cols
         if len(X) > 10000:
@@ -299,30 +337,53 @@ class AutoMLTrainer:
             self.use_label_encoding = False
             X_encoded = pd.get_dummies(X, drop_first=True)
             label_encoders = None
-        
+
         # Save training feature names
         self.training_feature_names = list(X_encoded.columns)
-        
+
         # Handle missing values - use median for numeric, mode for categorical
         numeric_cols = X_encoded.select_dtypes(include=[np.number]).columns
         for col in numeric_cols:
-            X_encoded[col].fillna(X_encoded[col].median(), inplace=True)
+            X_encoded[col] = X_encoded[col].fillna(X_encoded[col].median())
         for col in X_encoded.columns:
             if X_encoded[col].isna().any():
-                X_encoded[col].fillna(X_encoded[col].mode()[0] if len(X_encoded[col].mode()) > 0 else 0, inplace=True)
-        
-        # Encode target for classification
-        if task_type == 'classification' and y.dtype == 'object':
-            le = LabelEncoder()
-            y = le.fit_transform(y)
-            self.label_encoder = le
+                mode = X_encoded[col].mode()
+                X_encoded[col] = X_encoded[col].fillna(mode.iloc[0] if len(mode) > 0 else 0)
+
+        # Encode target for classification whenever labels are non-numeric
+        if task_type == "classification":
+            y_num = pd.to_numeric(y, errors="coerce")
+            if y_num.isna().any() or pd.api.types.is_string_dtype(y) or y.dtype == object:
+                le = LabelEncoder()
+                y = le.fit_transform(y.astype(str))
+                self.label_encoder = le
+            else:
+                y = y_num
+                # Remap arbitrary integer labels to 0..n-1 for xgboost compatibility
+                uniq = sorted(pd.Series(y).dropna().unique().tolist())
+                if uniq and (min(uniq) != 0 or uniq != list(range(len(uniq)))):
+                    remap = {v: i for i, v in enumerate(uniq)}
+                    y = pd.Series(y).map(remap).values
+                self.label_encoder = None
         else:
+            y = pd.to_numeric(y, errors="coerce")
             self.label_encoder = None
-        
+
+        # Drop rows with NaN target (regression)
+        if task_type == "regression":
+            mask = ~pd.isna(y)
+            if hasattr(mask, "values"):
+                mask = mask.values if hasattr(mask, "values") else mask
+            X_encoded = X_encoded.loc[mask] if hasattr(X_encoded, "loc") else X_encoded[mask]
+            y = np.asarray(y)[mask] if not isinstance(y, np.ndarray) else y[mask]
+
         # Split data
         X_train, X_test, y_train, y_test = train_test_split(
-            X_encoded, y, test_size=self.test_size, random_state=self.random_state, 
-            stratify=y if task_type == 'classification' and len(np.unique(y)) < 100 else None
+            X_encoded,
+            y,
+            test_size=self.test_size,
+            random_state=self.random_state,
+            stratify=y if task_type == "classification" and len(np.unique(y)) < 100 else None,
         )
         
         # Feature selection for classification (select top features)
@@ -436,7 +497,7 @@ class AutoMLTrainer:
                             n_estimators=n_estimators,
                             max_depth=max_depth,
                             random_state=self.random_state,
-                            n_jobs=-1
+                            n_jobs=_parallel_jobs()
                         )
                     elif model_code == 'gbc':
                         n_estimators = min(100, max(50, n_samples // 1000))
@@ -455,7 +516,7 @@ class AutoMLTrainer:
                             max_depth=max_depth,
                             learning_rate=0.1,
                             random_state=self.random_state,
-                            n_jobs=-1,
+                            n_jobs=_parallel_jobs(),
                             verbosity=0
                         )
                     elif model_code == 'lgbm' and LIGHTGBM_AVAILABLE:
@@ -466,7 +527,7 @@ class AutoMLTrainer:
                             max_depth=max_depth,
                             learning_rate=0.1,
                             random_state=self.random_state,
-                            n_jobs=-1,
+                            n_jobs=_parallel_jobs(),
                             verbosity=-1
                         )
                     elif model_code == 'svm':
@@ -499,7 +560,7 @@ class AutoMLTrainer:
                     # Cross-validation (use fewer folds for large datasets)
                     cv_folds = 3 if n_samples > 20000 else 5
                     logger.info(f"  ⚡ Running {cv_folds}-fold cross-validation...")
-                    cv_scores = cross_val_score(model, X_train, y_train, cv=cv_folds, scoring='accuracy', n_jobs=-1)
+                    cv_scores = cross_val_score(model, X_train, y_train, cv=cv_folds, scoring='accuracy', n_jobs=_parallel_jobs())
                     cv_mean = cv_scores.mean()
                     
                     results[model_name] = {

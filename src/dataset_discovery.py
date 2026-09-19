@@ -38,11 +38,13 @@ UCI_DATASETS = {
     296: ("Dermatology", ["dermatology", "skin", "classification"]),
     15: ("Breast Cancer", ["breast", "cancer", "classification"]),
     12: ("Heart Disease (Statlog)", ["heart", "disease", "classification"]),
-    334: ("Dry Bean", ["bean", "agriculture", "classification"]),
+    334: ("Dry Bean", ["bean", "agriculture", "classification", "dry"]),  # fetch remapped to 602
+    602: ("Dry Bean Dataset", ["bean", "dry", "agriculture", "classification"]),
     148: ("Spambase", ["spam", "email", "classification"]),
     159: ("Letter Recognition", ["letter", "recognition", "classification"]),
     146: ("Mushroom", ["mushroom", "classification"]),
-    41: ("Soybean", ["soybean", "agriculture", "classification"]),
+    41: ("Soybean", ["soybean", "agriculture", "classification"]),  # fetch remapped to 58
+    58: ("Soybean Large", ["soybean", "agriculture", "classification"]),
     73: ("Mushroom (Agaricus)", ["mushroom", "classification"]),
 }
 
@@ -125,9 +127,35 @@ class DatasetDiscovery:
         
         # Filter and rank datasets
         filtered_datasets = self._filter_datasets(all_datasets)
-        
+
+        # Reliability fallback: never return an empty catalog when UCI is enabled.
+        # Lets the matcher still pick a downloadable local/UCI candidate.
+        if not filtered_datasets and self.uci_config.get("enabled", False):
+            logger.warning(
+                "No keyword hits — falling back to full local UCI catalog for matching"
+            )
+            filtered_datasets = self._uci_catalog_all()
+
         logger.info(f"Discovered {len(filtered_datasets)} relevant datasets (from {len(all_datasets)} total)")
         return filtered_datasets
+
+    def _uci_catalog_all(self) -> List[Dict]:
+        """Return every locally catalogued UCI dataset (no network)."""
+        out = []
+        for uci_id, (name, dataset_keywords) in UCI_DATASETS.items():
+            out.append(
+                {
+                    "source": "uci",
+                    "id": str(uci_id),
+                    "name": name,
+                    "title": name,
+                    "description": f"{name} ({', '.join(dataset_keywords)})",
+                    "keywords": list(dataset_keywords),
+                    "size": None,
+                    "url": f"https://archive.ics.uci.edu/dataset/{uci_id}",
+                }
+            )
+        return out
     
     def _search_kaggle(self, keywords: List[str], task_type: str) -> List[Dict]:
         """Search Kaggle datasets."""

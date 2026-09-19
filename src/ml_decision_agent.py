@@ -27,13 +27,19 @@ class MLDecisionAgent:
         self.config = config
         self.strict_mode = config.get('strict_mode', True)  # Prefer refusal over incorrect automation
         
-    def decide(self, problem: Dict, direct_problem_mode: bool = False) -> Dict:
+    def decide(
+        self,
+        problem: Dict,
+        direct_problem_mode: bool = False,
+        force_all_gates: bool = False,
+    ) -> Dict:
         """
         Main decision function - runs all gates and returns decision.
         
         Args:
             problem: Problem dictionary
             direct_problem_mode: If True, skip Gate 1 (Intent Classification) since user explicitly provided ML problem
+            force_all_gates: If True (evaluation mode), never skip gates even for direct_input
         
         Returns:
             {
@@ -47,9 +53,12 @@ class MLDecisionAgent:
         
         # Auto-detect direct problem mode from problem source
         is_direct_problem = direct_problem_mode or (problem.get('source') == 'direct_input')
+        if force_all_gates:
+            is_direct_problem = False
+            logger.info("Evaluation mode: force_all_gates=True — running all gates including intent")
         
-        # GATE 1: Problem Intent Classification (SKIP in direct problem mode)
-        logger.info(f"ML Decision Agent: direct_problem_mode={direct_problem_mode}, problem.source={problem.get('source')}, is_direct_problem={is_direct_problem}")
+        # GATE 1: Problem Intent Classification (SKIP in direct problem mode unless forced)
+        logger.info(f"ML Decision Agent: direct_problem_mode={direct_problem_mode}, problem.source={problem.get('source')}, is_direct_problem={is_direct_problem}, force_all_gates={force_all_gates}")
         if is_direct_problem:
             # In direct problem mode, assume user provided a valid ML problem
             # Skip intent classification but still validate other aspects

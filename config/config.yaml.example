@@ -1,6 +1,28 @@
 # Configuration for Autonomous ML Pipeline
 # Copy this file to config.yaml and fill in your values
 
+# Evaluation mode (research revision). When enabled:
+# - Direct mode enforces Multi-Gate validation (no auto-approve bypass)
+# - Synthetic dataset fallback is disabled unless synthetic_data.enabled=true
+# - Stage / failure / LLM / human-intervention logs are written under output_root
+evaluation_mode:
+  enabled: false
+  force_all_gates_in_direct_mode: true
+  gates:
+    enabled: true
+  synthetic_data:
+    enabled: false
+  retries:
+    enabled: false
+    max_retries: 0
+  logging:
+    stage_level: true
+    token_level: true
+    failure_level: true
+    human_intervention: true
+  output_root: "../research_revision/results"
+  dataset_version: "benchmark-v1"
+
 # GitHub Configuration
 github:
   username: ""  # Your GitHub username

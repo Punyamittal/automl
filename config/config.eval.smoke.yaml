@@ -1,0 +1,148 @@
+# Smoke-test / evaluation configuration for research revision P0 instrumentation.
+# Copy-safe: does not replace development config.yaml.
+
+evaluation_mode:
+  enabled: true
+  force_all_gates_in_direct_mode: true
+  gates:
+    enabled: true
+  synthetic_data:
+    enabled: false
+  retries:
+    enabled: false
+    max_retries: 0
+  logging:
+    stage_level: true
+    token_level: true
+    failure_level: true
+    human_intervention: true
+  output_root: "../research_revision/results"
+  dataset_version: "benchmark-v1-smoke"
+
+github:
+  username: ""
+  token: ""
+  organization: ""
+
+llm:
+  provider: "local"
+  model_name: "llama3.2"
+  api_url: "http://localhost:11434"
+  token: ""
+  max_retries: 1
+  timeout: 60
+
+ollama:
+  enabled: true
+  base_url: "http://localhost:11434"
+  model_name: "llama3.2"
+
+direct_problem:
+  enabled: false
+  statement: ""
+
+problem_miner:
+  min_problem_length: 50
+  max_problems_per_run: 10
+
+kaggle_problem_mining:
+  enabled: false
+  max_competitions: 0
+  max_datasets: 0
+
+github_problem_mining:
+  enabled: false
+  max_issues: 0
+  max_repos: 0
+
+max_search_iterations: 1
+max_total_problems_evaluated: 5
+
+ml_decision_agent:
+  strict_mode: true
+
+feasibility:
+  min_confidence: 0.5
+  required_task_types:
+    - "classification"
+    - "regression"
+    - "clustering"
+  reject_keywords:
+    - "need help with"
+    - "how do i"
+    - "tutorial"
+
+dataset_discovery:
+  sources:
+    - huggingface
+    - uci
+    - datagov
+  kaggle:
+    enabled: false
+    max_results: 0
+  huggingface:
+    enabled: true
+    max_results: 10
+  uci:
+    enabled: true
+    max_results: 20
+  datagov:
+    enabled: false
+    max_results: 0
+  worldbank:
+    enabled: false
+    max_results: 0
+  aws_open_data:
+    enabled: false
+    max_results: 0
+  min_dataset_size: 50
+  max_dataset_size: 1000000
+
+dataset_matching:
+  similarity_threshold: 0.4
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  top_k_matches: 5
+
+problem_registry:
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  problem_similarity_threshold: 0.99
+  allow_duplicate_problems: true
+
+model_registry:
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  model_similarity_threshold: 0.99
+  max_duplicate_trains: 100
+
+automl:
+  framework: "sklearn"
+  max_training_time: 600
+  test_size: 0.2
+  random_state: 42
+  max_dataset_rows: 20000
+  models_to_try:
+    - "rf"
+    - "lr"
+    - "knn"
+  min_model_score: 0.0
+
+code_generation:
+  include_examples: true
+  include_visualizations: false
+  code_style: "pep8"
+
+github_publishing:
+  create_repo: false
+  add_topics: false
+  default_topics: []
+  make_private: true
+
+logging:
+  level: "INFO"
+  file: "outputs/logs/pipeline_eval_smoke.log"
+  console: true
+
+safety:
+  reject_problems_without_data: true
+  reject_unsafe_problems: true
+  max_training_time: 600
+  max_model_size_mb: 500
